@@ -4,12 +4,11 @@ import json
 import pandas as pd
 
 BASE_DIR = Path(r"W:\AshareScanner")
-DATA_DIR = BASE_DIR / "data" / "daily_hist"
+PACK_FILE = BASE_DIR / "data" / "packed" / "daily_hist_all.parquet"
 OUTPUT_DIR = BASE_DIR / "output"
 LOGS_DIR = BASE_DIR / "logs"
 CONFIG_FILE = Path(__file__).with_name("scan_config.json")
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -114,56 +113,60 @@ VOLUME_MULTIPLIER = float(hard_filters["volume_multiplier"])
 TURNOVER_MIN = float(hard_filters["turnover_min"])
 MIN_HISTORY_BARS = int(hard_filters["min_history_bars"])
 
-all_result_file = OUTPUT_DIR / f"p7_scan_from_local_all_results_{today_str}.csv"
-selected_file = OUTPUT_DIR / f"p7_scan_from_local_all_selected_{today_str}.csv"
-candidate_file = OUTPUT_DIR / f"p7_scan_from_local_all_candidate_{today_str}.csv"
-watch_file = OUTPUT_DIR / f"p7_scan_from_local_all_watch_{today_str}.csv"
-error_file = OUTPUT_DIR / f"p7_scan_from_local_all_errors_{today_str}.csv"
-skip_file = OUTPUT_DIR / f"p7_scan_from_local_all_skipped_{today_str}.csv"
-summary_file = OUTPUT_DIR / f"p7_scan_from_local_all_summary_{today_str}.csv"
-log_file = LOGS_DIR / f"p7_scan_from_local_all_{today_str}.log"
+all_result_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_results_{today_str}.csv"
+selected_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_selected_{today_str}.csv"
+candidate_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_candidate_{today_str}.csv"
+watch_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_watch_{today_str}.csv"
+error_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_errors_{today_str}.csv"
+skip_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_skipped_{today_str}.csv"
+summary_file = OUTPUT_DIR / f"p7_scan_from_parquet_all_summary_{today_str}.csv"
+log_file = LOGS_DIR / f"p7_scan_from_parquet_all_{today_str}.log"
+
+if not PACK_FILE.exists():
+    raise FileNotFoundError(f"未找到 parquet 打包文件: {PACK_FILE}")
+
+print(f"开始读取 parquet: {PACK_FILE}")
+df_all = pd.read_parquet(PACK_FILE, columns=REQUIRED_COLS)
+
+if df_all.empty:
+    raise ValueError("parquet 文件为空")
+
+df_all = df_all.copy()
+df_all["股票代码"] = df_all["股票代码"].astype(str).str.zfill(6)
+df_all["股票名称"] = df_all["股票名称"].astype(str).str.strip()
+df_all["日期"] = pd.to_datetime(df_all["日期"], errors="coerce")
+
+for col in NUMERIC_COLS:
+    df_all[col] = pd.to_numeric(df_all[col], errors="coerce")
+
+df_all = df_all.dropna(subset=["日期"] + NUMERIC_COLS)
+
+if df_all.empty:
+    raise ValueError("parquet 清洗后为空")
+
+df_all = df_all.sort_values(["股票代码", "日期"]).reset_index(drop=True)
+
+stock_count = df_all["股票代码"].nunique()
+print(f"股票数量: {stock_count}")
+print(f"总行数: {len(df_all)}")
 
 results = []
 errors = []
 skipped = []
 
-files = sorted(DATA_DIR.glob("*.csv"))
-if not files:
-    raise FileNotFoundError(f"未找到任何历史库文件: {DATA_DIR}")
+grouped = df_all.groupby("股票代码", sort=False)
 
-print(f"待扫描文件数量: {len(files)}")
-
-for idx, file_path in enumerate(files, start=1):
-    if idx == 1 or idx % 100 == 0 or idx == len(files):
-        print(f"[进度] {idx}/{len(files)}")
+for idx, (symbol, df) in enumerate(grouped, start=1):
+    if idx == 1 or idx % 100 == 0 or idx == stock_count:
+        print(f"[进度] {idx}/{stock_count}")
 
     try:
-        df = pd.read_csv(
-            file_path,
-            usecols=REQUIRED_COLS,
-            dtype={"股票代码": str, "股票名称": str}
-        )
-
         if df.empty:
-            raise ValueError("文件为空")
+            continue
 
-        df = df.copy()
-        df["股票代码"] = df["股票代码"].astype(str).str.zfill(6)
-        df["股票名称"] = df["股票名称"].astype(str).str.strip()
-        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-
-        for col in NUMERIC_COLS:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        df = df.dropna(subset=["日期"] + NUMERIC_COLS)
-
-        if df.empty:
-            raise ValueError("清洗后为空")
-
-        df = df.sort_values("日期").reset_index(drop=True)
-
-        symbol = str(df.iloc[-1]["股票代码"]).zfill(6)
-        name = str(df.iloc[-1]["股票名称"]).strip()
+        df = df.reset_index(drop=True)
+        latest = df.iloc[-1]
+        name = str(latest["股票名称"]).strip()
 
         if len(df) < MIN_HISTORY_BARS:
             skipped.append({
@@ -183,7 +186,6 @@ for idx, file_path in enumerate(files, start=1):
             })
             continue
 
-        latest = df.iloc[-1]
         prev = df.iloc[-2]
 
         latest_open = float(latest["开盘"])
@@ -198,14 +200,12 @@ for idx, file_path in enumerate(files, start=1):
         prev_volume = float(prev["成交量"])
 
         window_df = df.tail(VOLATILITY_WINDOW)
-
         high_n = float(window_df["最高"].max())
         low_n = float(window_df["最低"].min())
         if low_n <= 0:
             raise ValueError("窗口最低价异常")
 
         range_vol = high_n / low_n - 1
-
         volume_ratio_prev1 = latest_volume / prev_volume if prev_volume != 0 else 0.0
 
         prev_5_avg_vol = float(df["成交量"].iloc[-6:-1].mean())
@@ -281,7 +281,7 @@ for idx, file_path in enumerate(files, start=1):
 
     except Exception as e:
         errors.append({
-            "文件名": file_path.name,
+            "股票代码": symbol,
             "错误信息": repr(e)
         })
 
@@ -327,7 +327,9 @@ error_df.to_csv(error_file, index=False, encoding="utf-8-sig")
 skip_df.to_csv(skip_file, index=False, encoding="utf-8-sig")
 
 summary_df = pd.DataFrame([{
-    "扫描总数": len(files),
+    "来源文件": str(PACK_FILE),
+    "股票数量": stock_count,
+    "总行数": len(df_all),
     "结果数量": len(result_df),
     "硬过滤通过数量": len(selected_df),
     "候选数量": len(candidate_df),
@@ -349,8 +351,10 @@ summary_df = pd.DataFrame([{
 summary_df.to_csv(summary_file, index=False, encoding="utf-8-sig")
 
 log_lines = [
-    "P7 lean scan finished",
-    f"file_total={len(files)}",
+    "P7 parquet scan finished",
+    f"pack_file={PACK_FILE}",
+    f"stock_count={stock_count}",
+    f"row_count={len(df_all)}",
     f"result_count={len(result_df)}",
     f"hard_pass_count={len(selected_df)}",
     f"candidate_count={len(candidate_df)}",
@@ -368,7 +372,9 @@ log_lines = [
 log_file.write_text("\n".join(log_lines), encoding="utf-8")
 
 print("运行完成")
-print(f"扫描总数: {len(files)}")
+print(f"来源文件: {PACK_FILE}")
+print(f"股票数量: {stock_count}")
+print(f"总行数: {len(df_all)}")
 print(f"结果数量: {len(result_df)}")
 print(f"硬过滤通过数量: {len(selected_df)}")
 print(f"候选数量: {len(candidate_df)}")

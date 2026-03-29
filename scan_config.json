@@ -1,8 +1,22 @@
 {
-  "volatility_window": 90,
-  "volatility_max": 0.2,
-  "require_bullish": true,
-  "volume_multiplier": 3.0,
-  "turnover_min": 10.0,
-  "min_history_bars": 90
+  "hard_filters": {
+    "volatility_window": 90,
+    "volatility_max": 0.35,
+    "require_bullish": true,
+    "volume_multiplier": 2.0,
+    "turnover_min": 5.0,
+    "min_history_bars": 90
+  },
+  "label_rules": {
+    "candidate": {
+      "vr5_min": 1.8,
+      "clv_min": 0.3,
+      "br20_min": 0.98
+    },
+    "watch": {
+      "vr5_min": 1.2,
+      "clv_min": 0.0,
+      "br20_min": 0.95
+    }
+  }
 }

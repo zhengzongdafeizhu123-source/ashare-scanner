@@ -1,5 +1,16 @@
+# Python
 __pycache__/
 *.pyc
-*.pyo
-*.log
+
+# Data
+data/daily_hist/
+data/packed/
+
+# Outputs
+output/
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
 .vscode/
