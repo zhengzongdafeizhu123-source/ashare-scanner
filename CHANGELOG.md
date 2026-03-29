@@ -1,6 +1,53 @@
 # Changelog
 
-## 2026-03-29
+## 2026-03-29 Version 2
+
+### Added
+- 新增 `gui_app.py`，提供本地 Tkinter GUI 控制面板，支持：
+  - 一键日更扫描
+  - 同步股票池
+  - 补建缺失股票
+  - 仅更新历史库
+  - 仅打包 Parquet
+  - 仅扫描
+  - 打开 output / logs 目录
+  - 读取与保存 `scan_config.json`
+- 新增 `gui_runner.py`，作为 GUI 调用的编排层，统一封装：
+  - `sync_universe()`
+  - `find_missing_stocks()`
+  - `bootstrap_missing_stocks()`
+  - `update_daily_hist()`
+  - `pack_to_parquet()`
+  - `scan_from_parquet()`
+  - `run_daily_pipeline()`
+- 新增 `app_config.json`，通过 `base_dir` 统一切换测试目录与正式目录
+
+### Changed
+- `p4_bootstrap_hist_all_resume.py` 新增参数：
+  - `--stock-list-file`
+  - `--universe-file`
+  - `--start-date`
+  - `--skip-existing`
+  使其支持只对缺失股票进行补建，而不是只能按批次初始化建库
+- `gui_runner.py` 改为通过 `p4_bootstrap_hist_all_resume.py` 补建缺失股票，不再在 runner 内重复实现历史数据抓取逻辑
+- `p3_build_universe.py`、`p6_update_daily_hist.py`、`p6b_pack_hist_to_parquet.py`、`p7_scan_from_parquet_all.py` 全部改为基于 `app_config.json` 解析路径，而不是依赖固定硬编码目录
+
+### Fixed
+- 统一关键脚本的 UTF-8 stdout/stderr 配置，修复 Windows GUI 子进程中文输出编码问题
+- 清理异常代理变量（如 `127.0.0.1:9`），减少 AkShare 请求因坏代理导致的失败
+- 修复 `p3_build_universe.py` 在不可写目录下写日志/输出失败的问题
+- 修复 `gui_runner.py` 与 `p4_bootstrap_hist_all_resume.py` 在 universe 文件定位上的不一致问题
+- 修复 GUI 一键流程在测试目录下只能读取少量样本文件时，缺失股票补建链路无法正确衔接的问题
+
+### Notes
+- 当前 GUI 已可完成基础联调：
+  - 同步股票池
+  - 仅更新历史库
+  - 仅打包 Parquet
+  - 仅扫描
+- 当前 `.runtime` 目录仅用于隔离测试；若在该目录执行“一键日更扫描”，由于本地历史库不完整，会触发大规模缺失股票补建，耗时较长
+
+## 2026-03-29 Version 1
 
 ### Added
 - 新增 `p6b_pack_hist_to_parquet.py`，用于把全市场 CSV 历史库打包为单个 Parquet 文件

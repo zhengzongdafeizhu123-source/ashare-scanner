@@ -85,6 +85,10 @@ def _run_script(step_name, script_name, args=None, output_patterns=None, log_cal
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
+        value = env.get(key, "").strip().lower()
+        if value in {"http://127.0.0.1:9", "https://127.0.0.1:9"}:
+            env.pop(key, None)
 
     process = subprocess.Popen(
         command,

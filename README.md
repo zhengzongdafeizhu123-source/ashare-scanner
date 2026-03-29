@@ -1,349 +1,177 @@
 # AShare Scanner
 
-一个面向 A 股全市场的本地筛选脚本项目。
+一个本地运行的 A 股全市场扫描项目。
 
-当前阶段目标不是做花哨界面，而是先把这三层跑稳：
+项目目标不是做一个“看盘软件”，而是搭建一条**可长期维护、可本地落地、可通过 GUI 控制的全市场扫描流水线**：
 
-1. **数据层**：全市场股票池、本地历史库、日更更新  
-2. **扫描层**：基于本地数据进行全市场日线扫描  
-3. **应用层**：后续再接 GUI，把“更新 / 打包 / 扫描 / 导出”做成可点击操作  
+- 同步最新股票池
+- 维护本地日线历史库
+- 将全市场历史库打包为单个 Parquet
+- 按自定义规则执行扫描
+- 输出结果、候选、观察、异常、跳过与汇总文件
 
-目前项目已经从“CSV 逐文件扫描”升级到“**Parquet 打包后扫描**”，扫描速度相比旧方案有数量级提升。  
-当前推荐的主扫描流程已经切换为：
+当前项目已经同时支持两种使用方式：
 
-- `p6_update_daily_hist.py`：更新原始 CSV 历史库
-- `p6b_pack_hist_to_parquet.py`：把全市场 CSV 打包成单个 Parquet
-- `p7_scan_from_parquet_all.py`：基于 Parquet 做全市场扫描
-
----
-
-## 1. 项目目标
-
-本项目用于在 A 股全市场中，基于本地历史日线数据进行筛选，输出值得人工复核的候选标的。
-
-当前边界：
-
-- 做 **收盘后日线扫描**
-- 做 **全市场股票池**
-- 做 **本地历史库**
-- 做 **每日增量更新**
-- 做 **本地规则筛选**
-- 后续预留 **GUI**
-- **不做自动下单**
-- **不做盘中高频监控**
-- **不做新闻/公告自动解读**
+1. **脚本模式**：按步骤手动运行各阶段脚本
+2. **GUI 模式**：通过 `gui_app.py` 在本地控制台中执行同步、补库、更新、打包和扫描
 
 ---
 
-## 2. 当前环境
+## 一、当前项目能力
 
-- 系统：Windows 11
-- Python 环境：conda
-- 当前主要环境名：`a_share`
-- 项目目录：`W:\AshareScanner\project`
-- 原始数据目录：`W:\AshareScanner\data`
-- 打包数据目录：`W:\AshareScanner\data\packed`
-- 输出目录：`W:\AshareScanner\output`
-- 日志目录：`W:\AshareScanner\logs`
+### 1. 数据链路
+项目当前已经具备以下完整链路：
+
+- 同步全市场股票池
+- 检查缺失股票
+- 对缺失股票补建本地历史库
+- 对已有历史库做日更
+- 将全市场 CSV 历史库打包成单个 Parquet
+- 从 Parquet 执行全市场扫描
+- 输出扫描结果、候选、观察、异常、跳过和汇总文件
+
+### 2. GUI 能力（当前版本）
+当前已经有一个本地 Tkinter GUI，可执行以下操作：
+
+- 一键日更扫描
+- 同步股票池
+- 补建缺失股票
+- 仅更新历史库
+- 仅打包 Parquet
+- 仅扫描
+- 打开 output 目录
+- 打开 logs 目录
+- 读取与保存 `scan_config.json` 中的核心扫描参数
+
+> 说明：当前 GUI 已可用，但仍属于 **V1 可运行版**。  
+> 后续还会继续优化布局、中文参数名、tooltip、进度条、ETA、结果表格展示等体验问题。
 
 ---
 
-## 3. 当前目录结构
+## 二、核心流程说明
+
+### 1. 初始化 / 补库流程
+适用于第一次搭建本地库，或正式补齐缺失股票时使用：
+
+1. `p3_build_universe.py`
+   - 同步最新股票池
+2. `p4_bootstrap_hist_all_resume.py`
+   - 初始化或补建本地历史库
+3. `p6b_pack_hist_to_parquet.py`
+   - 打包全市场历史库
+4. `p7_scan_from_parquet_all.py`
+   - 执行扫描
+
+### 2. 日常流程
+适用于已有完整本地库后的日常使用：
+
+1. `p3_build_universe.py`
+   - 同步最新股票池
+2. `p6_update_daily_hist.py`
+   - 更新已有本地历史库
+3. `p6b_pack_hist_to_parquet.py`
+   - 重打包 Parquet
+4. `p7_scan_from_parquet_all.py`
+   - 执行扫描
+
+### 3. GUI 中“一键日更扫描”的真实逻辑
+GUI 里的“一键日更扫描”不是简单地执行更新和扫描，而是按下面顺序串行执行：
+
+1. 同步股票池
+2. 检查缺失股票
+3. 如果有缺失股票，则先补建缺失股票
+4. 更新已有历史库
+5. 打包 Parquet
+6. 执行扫描
+
+这条逻辑适合**正式环境**。  
+但如果当前 `base_dir` 指向的是仅含少量样本 CSV 的测试目录，就会把其余股票全部识别为“缺失股票”，从而触发大规模补建，耗时可能数小时。
+
+---
+
+## 三、目录结构（关键文件）
 
 ```text
-W:\AshareScanner
-├─ project
-│  ├─ p1_single_stock_test.py
-│  ├─ p2_sample_scan.py
-│  ├─ p2_sample_scan_50.py
-│  ├─ p3_build_universe.py
-│  ├─ p4_bootstrap_hist_100.py
-│  ├─ p4_bootstrap_hist_all_resume.py
-│  ├─ p5_scan_from_local_100.py
-│  ├─ p5_scan_from_local_100_diagnose.py
-│  ├─ p6_update_daily_hist.py
-│  ├─ p6b_pack_hist_to_parquet.py
-│  ├─ p7_scan_from_local_all.py
-│  ├─ p7_scan_from_parquet_all.py
-│  ├─ p7_profile_io.py
-│  ├─ p7_probe_file_format.py
-│  ├─ scan_config.json
-│  ├─ test_env.py
-│  ├─ README.md
-│  └─ CHANGELOG.md
-├─ data
-│  ├─ daily_hist
-│  └─ packed
-├─ output
-└─ logs
+ashare-scanner/
+├─ gui_app.py                         # GUI 控制台入口（Tkinter）
+├─ gui_runner.py                      # GUI 编排层
+├─ app_config.json                    # 运行根目录配置
+├─ scan_config.json                   # 扫描参数配置
+├─ README.md
+├─ CHANGELOG.md
+│
+├─ p3_build_universe.py               # 同步股票池
+├─ p4_bootstrap_hist_all_resume.py    # 初始化 / 补建本地历史库
+├─ p5_scan_from_local_100.py          # 早期 CSV 小范围扫描脚本（保留）
+├─ p5_scan_from_local_100_diagnose.py # 早期诊断脚本（保留）
+├─ p6_update_daily_hist.py            # 更新已有本地历史库
+├─ p6b_pack_hist_to_parquet.py        # 将全市场 CSV 打包为 parquet
+├─ p7_scan_from_local_all.py          # 旧版 CSV 全市场扫描（保留）
+├─ p7_scan_from_parquet_all.py        # 当前主力扫描脚本
+├─ p7_profile_io.py                   # IO profiling 脚本
+├─ p7_probe_file_format.py            # 文件格式探测脚本
+│
+└─ 其他测试或环境检查脚本
 ```
 
 ---
 
-## 4. 脚本总表
+## 四、配置文件说明
 
-| 脚本 | 作用 | 当前是否主用 |
-|---|---|---|
-| `test_env.py` | 验证 Python 环境和依赖是否正常 | 否 |
-| `p1_single_stock_test.py` | 单票试拉取、验证环境和路径 | 否 |
-| `p2_sample_scan.py` | 10 只样本扫描验证 | 否 |
-| `p2_sample_scan_50.py` | 50 只样本扫描验证 | 否 |
-| `p3_build_universe.py` | 构建全市场股票池 | 低频使用 |
-| `p4_bootstrap_hist_100.py` | 100 只样本建库验证 | 否 |
-| `p4_bootstrap_hist_all_resume.py` | 全市场历史库初始化建库 | 低频使用 |
-| `p5_scan_from_local_100.py` | 100 只本地规则验证 | 否 |
-| `p5_scan_from_local_100_diagnose.py` | 规则诊断、拆规则看通过率 | 排查时用 |
-| `p6_update_daily_hist.py` | 每日增量更新 CSV 历史库 | 是 |
-| `p6b_pack_hist_to_parquet.py` | 把全市场 CSV 打包成单个 Parquet | 是 |
-| `p7_scan_from_local_all.py` | 直接扫描 5000+ 个 CSV | 仅对照/备用 |
-| `p7_scan_from_parquet_all.py` | 基于 Parquet 做主扫描 | 是 |
-| `p7_profile_io.py` | 分析 CSV 逐文件扫描的 I/O 耗时 | 排查时用 |
-| `p7_probe_file_format.py` | 排查慢文件是否格式异常 | 排查时用 |
-| `scan_config.json` | 扫描参数配置文件 | 是 |
-| `README.md` | 项目说明文档 | 是 |
-| `CHANGELOG.md` | 更新日志 | 是 |
+### 1. `app_config.json`
+用于指定项目运行根目录。
 
----
+示例：
 
-## 5. 每个脚本的作用说明
+```json
+{
+  "base_dir": "W:\\AshareScanner\\project\\.runtime"
+}
+```
 
-### `test_env.py`
-作用：
-- 验证 Python 环境、依赖和基础执行是否正常
-- 排查环境问题时先跑它
+### 含义
+所有这些目录都会基于 `base_dir` 解析：
 
-当前地位：
-- 环境排查工具
+- `data/daily_hist`
+- `data/packed`
+- `output`
+- `logs`
 
----
+### 推荐用法
+#### 测试阶段
+建议把 `base_dir` 指向一个隔离测试目录，例如：
 
-### `p1_single_stock_test.py`
-作用：
-- 拉取单只股票历史数据
-- 写入本地文件
-- 验证网络、依赖、路径读写是否正常
+```json
+{
+  "base_dir": "W:\\AshareScanner\\project\\.runtime"
+}
+```
 
-使用场景：
-- 第一次本地部署时
-- 怀疑环境坏了时
-- 想确认 akshare / pandas / 路径是否正常时
+这样不会污染你的正式数据目录。
 
-当前地位：
-- 一次性验证脚本
-- 日常不需要频繁跑
+#### 正式运行阶段
+等 GUI 和流程稳定后，再把 `base_dir` 改成你的正式数据根目录，例如：
+
+```json
+{
+  "base_dir": "W:\\AshareScanner"
+}
+```
+
+> 注意：`app_config.json` 文件本身应该放在**项目根目录**，  
+> 不是放进 `.runtime` 里。  
+> `.runtime` 只是 `base_dir` 指向的运行产物目录。
 
 ---
 
-### `p2_sample_scan.py`
-作用：
-- 用 10 只样本股验证扫描流程
-- 计算基础指标
-- 输出结果、异常、日志
+### 2. `scan_config.json`
+用于控制扫描规则与分层阈值。
 
-当前地位：
-- 小样本规则原型验证脚本
+当前主要包括两部分：
 
----
+#### `hard_filters`
+核心硬过滤参数，例如：
 
-### `p2_sample_scan_50.py`
-作用：
-- 用 50 只样本股做更接近实战的测试
-- 验证扫描逻辑在小范围样本上的稳定性
-
-当前地位：
-- 小样本扩展验证脚本
-
----
-
-### `p3_build_universe.py`
-作用：
-- 获取全市场股票池
-- 做基础过滤
-- 输出原始股票池、过滤后股票池、汇总文件
-
-用途：
-- 给后续建库和扫描提供股票范围
-
-当前地位：
-- 底层基础脚本
-- 只有在股票池规则变化、或需要重建 universe 时才需要重新跑
-
----
-
-### `p4_bootstrap_hist_100.py`
-作用：
-- 先拿 100 只股票测试建库流程
-- 验证批量拉取和本地落盘是否正常
-
-当前地位：
-- 建库前的小样本验证脚本
-
----
-
-### `p4_bootstrap_hist_all_resume.py`
-作用：
-- 做全市场历史库初始化建库
-- 支持：
-  - 分批执行
-  - 跳过已存在文件
-  - 错误记录
-  - 断点续跑
-  - 重试机制
-
-落盘方式：
-- 一股一文件
-- 路径：`W:\AshareScanner\data\daily_hist\股票代码.csv`
-
-当前地位：
-- 全市场历史库初始化主脚本
-- 首次搭建时关键
-- 正常情况下不需要频繁重跑
-
----
-
-### `p5_scan_from_local_100.py`
-作用：
-- 在本地历史库上，对 100 只股票做规则验证
-- 先看逻辑能不能跑通
-
-当前地位：
-- 小范围规则验证脚本
-
----
-
-### `p5_scan_from_local_100_diagnose.py`
-作用：
-- 不只判断入选或不入选
-- 还统计每条规则的通过情况
-- 用来定位“规则太严”还是“数据有问题”
-
-当前地位：
-- 规则诊断脚本
-- 当主扫描结果异常时，可回到这里拆解排查
-
----
-
-### `p6_update_daily_hist.py`
-作用：
-- 每天收盘后对本地历史库做增量更新
-- 不再整段重拉历史
-- 输出 success / skipped / errors / logs
-
-用途：
-- 保持 `data\daily_hist` 下的 CSV 历史库是最新的
-
-当前地位：
-- 日常必跑脚本之一
-
----
-
-### `p6b_pack_hist_to_parquet.py`
-作用：
-- 读取 `data\daily_hist` 下的全市场 CSV
-- 清洗并拼接
-- 输出单个 Parquet 文件：
-  - `W:\AshareScanner\data\packed\daily_hist_all.parquet`
-
-为什么需要它：
-- CSV 逐文件扫描虽然逻辑简单，但面对 5000+ 小文件时，I/O 开销非常大
-- 项目真正瓶颈不在规则本身，而在“连续读取几千个小 CSV”
-- 因此增加 Parquet 打包层，作为扫描层的主输入数据
-
-当前地位：
-- 日常推荐脚本
-- 每次更新完 CSV 历史库后，建议重新打包一次
-
----
-
-### `p7_scan_from_local_all.py`
-作用：
-- 直接从 `data\daily_hist` 下逐个 CSV 扫描全市场
-- 输出结果、入选、候选、观察、跳过、异常、汇总、日志
-
-当前地位：
-- 保留为 CSV 直扫版本
-- 主要用于：
-  - 回溯对照
-  - 验证结果一致性
-  - 在没有 Parquet 时备用
-
-说明：
-- 当前已经不建议把它作为主力日常扫描脚本
-- 因为速度瓶颈主要来自 5000+ 小文件读取
-
----
-
-### `p7_scan_from_parquet_all.py`
-作用：
-- 直接读取 `daily_hist_all.parquet`
-- 按股票分组做全市场扫描
-- 输出与 CSV 版同类结果文件
-
-优势：
-- 与 CSV 版结果一致
-- 扫描速度大幅提升
-- 已经成为当前推荐主扫描脚本
-
-当前地位：
-- 当前主力扫描脚本
-- 日常扫描优先使用这个版本
-
----
-
-### `p7_profile_io.py`
-作用：
-- 针对 CSV 逐文件扫描做 I/O profiling
-- 统计每个文件的：
-  - `read_csv` 耗时
-  - 单文件总耗时
-  - 文件大小
-  - 行数
-- 找出慢区段和最慢文件
-
-用途：
-- 定位“慢在代码逻辑”还是“慢在文件读取”
-
-当前地位：
-- 性能诊断脚本
-- 平时不用跑，出现性能异常时使用
-
----
-
-### `p7_probe_file_format.py`
-作用：
-- 对比快文件与慢文件的：
-  - BOM
-  - 换行风格
-  - 原始字节读取耗时
-  - pandas 读取耗时
-- 用来排除是否是某批 CSV 文件格式异常
-
-当前地位：
-- 文件格式诊断脚本
-- 一次性排查工具
-
----
-
-### `scan_config.json`
-作用：
-- 存放扫描参数
-- 让扫描阈值尽量通过配置修改，而不是反复手改主脚本
-
-当前参数分两部分：
-- `hard_filters`
-- `label_rules`
-
----
-
-## 6. 当前规则体系
-
-当前扫描规则分两层：
-
-### 第一层：硬过滤
-主要作用：
-- 把当天最值得优先看的一小批票筛出来
-
-当前字段包括：
 - `volatility_window`
 - `volatility_max`
 - `require_bullish`
@@ -351,220 +179,290 @@ W:\AshareScanner
 - `turnover_min`
 - `min_history_bars`
 
-当前推荐参数：
+#### `label_rules`
+用于候选 / 观察分层的阈值，例如：
 
-```json
-{
-  "hard_filters": {
-    "volatility_window": 90,
-    "volatility_max": 0.35,
-    "require_bullish": true,
-    "volume_multiplier": 2.0,
-    "turnover_min": 5.0,
-    "min_history_bars": 90
-  }
-}
-```
+- `vr5_min`
+- `clv_min`
+- `br20_min`
 
-### 第二层：分层标签
-主要作用：
-- 不只给出“过 / 不过”
-- 还给出更细的候选层次
+GUI 当前已经支持读取与保存这几个核心参数。
 
-当前标签逻辑：
+---
+
+## 五、脚本说明
+
+## 1. `p3_build_universe.py`
+用于同步最新股票池。
+
+逻辑：
+- 优先尝试 `stock_info_a_code_name()`
+- 若失败，再回退到 `stock_zh_a_spot_em()`
+- 做基础过滤：
+  - A 股常见代码段
+  - 排除 ST / *ST / 退市等名称
+
+输出：
+- `p3_universe_raw_YYYYMMDD.csv`
+- `p3_universe_filtered_YYYYMMDD.csv`
+- `p3_universe_summary_YYYYMMDD.csv`
+- `p3_build_universe_YYYYMMDD.log`
+
+---
+
+## 2. `p4_bootstrap_hist_all_resume.py`
+用于初始化全市场历史库，或补建缺失股票历史库。
+
+当前支持两种模式：
+
+### 批次模式
+按 `START_INDEX + BATCH_SIZE` 跑一段股票池
+
+### 清单模式
+通过参数只处理指定股票代码列表，例如：
+
+- `--stock-list-file`
+- `--universe-file`
+- `--start-date`
+- `--skip-existing`
+
+这也是 GUI 中“补建缺失股票”的底层实现方式。
+
+---
+
+## 3. `p6_update_daily_hist.py`
+用于更新已有本地历史库。
+
+逻辑：
+- 遍历本地 `daily_hist/*.csv`
+- 读取每只股票的最新本地日期
+- 从下一交易日起请求新增数据
+- 合并并覆盖写回原 CSV
+- 输出成功 / 异常 / 跳过清单与日志
+
+---
+
+## 4. `p6b_pack_hist_to_parquet.py`
+用于把全市场 CSV 历史库打包为一个 Parquet 文件。
+
+输出：
+- `data/packed/daily_hist_all.parquet`
+- `p6b_pack_hist_summary_YYYYMMDD.csv`
+- `p6b_pack_hist_errors_YYYYMMDD.csv`
+- `p6b_pack_hist_YYYYMMDD.log`
+
+---
+
+## 5. `p7_scan_from_parquet_all.py`
+当前主力扫描脚本。
+
+逻辑：
+- 读取单个 Parquet 文件
+- 按股票分组计算指标
+- 应用硬过滤规则
+- 再根据标签规则分层为：
+  - 候选
+  - 观察
+  - 放弃
+
+输出：
+- 全量结果
+- 硬过滤通过
 - 候选
 - 观察
-- 放弃
+- 异常
+- 跳过
+- 汇总
 
-当前标签指标包括：
-- `VR5`
-- `CLV`
-- `BR20`
+---
 
-当前推荐参数：
+## 6. `gui_runner.py`
+这是 GUI 的编排层，不负责定义业务规则，只负责串流程。
 
-```json
-{
-  "label_rules": {
-    "candidate": {
-      "vr5_min": 1.8,
-      "clv_min": 0.3,
-      "br20_min": 0.98
-    },
-    "watch": {
-      "vr5_min": 1.2,
-      "clv_min": 0.0,
-      "br20_min": 0.95
-    }
-  }
-}
+当前封装的主要函数包括：
+
+- `sync_universe()`
+- `find_missing_stocks()`
+- `bootstrap_missing_stocks()`
+- `update_daily_hist()`
+- `pack_to_parquet()`
+- `scan_from_parquet()`
+- `run_daily_pipeline()`
+
+---
+
+## 7. `gui_app.py`
+Tkinter 图形界面入口。
+
+当前支持：
+- 按钮触发各阶段脚本
+- 参数读取与保存
+- 日志显示
+- 最近一次运行结果显示
+- 打开 output / logs 目录
+
+当前版本定位：
+- **V1 可运行版**
+- 核心目标是稳定接通整条本地流程，而不是视觉完成度
+
+---
+
+## 六、运行方式
+
+### 方式 A：GUI
+启动：
+
+```bash
+python gui_app.py
+```
+
+适合日常使用与参数调整。
+
+---
+
+### 方式 B：脚本模式
+
+#### 初始化 / 全量补库
+```bash
+python p3_build_universe.py
+python p4_bootstrap_hist_all_resume.py
+python p6b_pack_hist_to_parquet.py
+python p7_scan_from_parquet_all.py
+```
+
+#### 日常运行
+```bash
+python p3_build_universe.py
+python p6_update_daily_hist.py
+python p6b_pack_hist_to_parquet.py
+python p7_scan_from_parquet_all.py
 ```
 
 ---
 
-## 7. 当前已验证结果
+## 七、典型输出文件
 
-在当前参数下，项目实测结果为：
+扫描完成后，常见输出包括：
 
-- 股票数量：`5012`
-- 总行数：`2649711`
-- 结果数量：`4982`
-- 硬过滤通过数量：`13`
-- 候选数量：`39`
-- 观察数量：`133`
-- 跳过数量：`30`
-- 失败数量：`0`
+- `p7_scan_from_parquet_all_results_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_selected_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_candidate_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_watch_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_errors_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_skipped_YYYYMMDD.csv`
+- `p7_scan_from_parquet_all_summary_YYYYMMDD.csv`
 
-说明：
-- 规则已经能筛出可人工复核的候选池
-- Parquet 扫描与 CSV 扫描结果一致
-- 当前瓶颈已经从“逻辑能不能跑”转移到“怎么把应用层做顺”
-
----
-
-## 8. 当前推荐工作流
-
-### 首次搭建
-1. 跑 `p3_build_universe.py`
-2. 跑 `p4_bootstrap_hist_all_resume.py`
-3. 跑 `p6b_pack_hist_to_parquet.py`
-4. 跑 `p7_scan_from_parquet_all.py`
-
-### 日常使用
-1. 跑 `p6_update_daily_hist.py`
-2. 跑 `p6b_pack_hist_to_parquet.py`
-3. 跑 `p7_scan_from_parquet_all.py`
+更新与打包阶段也会产出对应的：
+- success
+- errors
+- skipped
+- summary
+- log
 
 ---
 
-## 9. GUI 路径设计
+## 八、当前测试状态说明
 
-GUI 不应该直接把所有逻辑重写到界面里，而应该做成“界面层调用已有脚本 / 后续函数”的模式。
+当前项目已经完成以下联调验证：
 
-### GUI 的正确定位
-GUI 应该只是一个操作面板，而不是重写数据逻辑。
+- 同步股票池可运行
+- 仅更新历史库可运行
+- 仅打包 Parquet 可运行
+- 仅扫描可运行
+- GUI 能正确调用 `gui_runner.py`
+- 关键脚本已统一：
+  - UTF-8 stdout/stderr
+  - `app_config.json -> base_dir`
+  - 坏代理清理逻辑
 
-未来 GUI 主要应该提供这些按钮：
+但需要注意：
 
-1. **更新历史库**
-   - 调用 `p6_update_daily_hist.py`
+### 测试目录 `.runtime`
+如果当前 `base_dir` 指向 `.runtime`，且里面只有少量样本 CSV：
 
-2. **打包扫描数据**
-   - 调用 `p6b_pack_hist_to_parquet.py`
+- “仅更新历史库”只会处理这些样本文件
+- “仅打包 Parquet”只会打包这些样本文件
+- “仅扫描”也只会扫描这些样本股票
+- “一键日更扫描”则会因为发现大量缺失股票，而触发全市场补建，耗时很长
 
-3. **执行全市场扫描**
-   - 调用 `p7_scan_from_parquet_all.py`
+所以：
 
-4. **修改扫描参数**
-   - 读写 `scan_config.json`
-
-5. **查看扫描结果**
-   - 打开 `output` 里的结果 CSV
-
-6. **查看日志**
-   - 打开 `logs` 里的日志文件
-
-### GUI 推荐迭代路线
-
-#### 第一步：本地轻量 GUI
-建议技术路线：
-- `tkinter` 或 `PySide6`
-
-目标：
-- 先做一个本地可点击面板
-- 不求美观，先把：
-  - 跑脚本
-  - 看进度
-  - 看结果
-  - 改参数
-  这些能力接起来
-
-#### 第二步：把脚本逻辑进一步函数化
-目前很多脚本还是“可直接运行脚本”的形态。  
-后续为了 GUI 更稳，建议逐步改成：
-
-- `main()` 入口
-- 核心逻辑抽成函数
-- GUI 只调用函数，不靠 subprocess 硬跑
-
-#### 第三步：再考虑 EXE
-等 GUI 稳了，再考虑：
-- `PyInstaller` 打包本地 EXE
+- **测试 GUI 单按钮功能时**：`.runtime` 很合适
+- **测试真实一键流程时**：应切换到正式完整历史库目录
 
 ---
 
-## 10. GitHub 仓库应该保存什么
+## 九、已处理过的环境问题
 
-应该保存：
-- 脚本代码
-- `README.md`
-- `CHANGELOG.md`
-- `scan_config.json`
-- `.gitignore`
+当前版本已针对以下问题做过兼容：
 
-不应该保存：
-- `data\daily_hist` 下的大量历史 CSV
-- `data\packed\daily_hist_all.parquet`
-- `output` 结果文件
-- `logs` 日志文件
-- `__pycache__`
+### 1. Windows 中文输出编码问题
+关键脚本统一处理了 UTF-8 stdout/stderr，减少 GUI 子进程中文输出报错。
 
----
+### 2. 运行目录硬编码问题
+关键脚本不再强依赖固定硬编码目录，而是统一读取 `app_config.json` 的 `base_dir`。
 
-## 11. 推荐 `.gitignore`
+### 3. 异常代理环境问题
+脚本会清理异常代理值（如 `127.0.0.1:9`），避免 AkShare 请求被坏代理拦截。
 
-```gitignore
-# Python
-__pycache__/
-*.pyc
-
-# Data
-data/daily_hist/
-data/packed/
-
-# Outputs
-output/
-logs/
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-```
+### 4. GUI 与脚本路径不一致问题
+GUI / runner / 各阶段脚本的路径口径已统一。
 
 ---
 
-## 12. 当前关键主线文件
+## 十、注意事项
 
-当前最关键的主线文件有：
+1. **首次全量补库很慢**
+   - 补建历史库是逐股请求远端数据，耗时可能按小时计算。
 
-- `p3_build_universe.py`：构建股票池
-- `p4_bootstrap_hist_all_resume.py`：初始化建库
-- `p6_update_daily_hist.py`：日更 CSV 历史库
-- `p6b_pack_hist_to_parquet.py`：打包扫描数据
-- `p7_scan_from_parquet_all.py`：当前主力扫描脚本
-- `scan_config.json`：参数配置
+2. **不要在测试目录里随意点击“一键日更扫描”**
+   - 如果测试目录里只有少量样本 CSV，会触发全市场缺失补建。
+
+3. **网络环境会显著影响股票池同步速度**
+   - VPN / 代理 / 不稳定网络可能导致 AkShare 接口超时或断流。
+
+4. **当前 GUI 主要解决“流程可视化”和“本地可操作性”**
+   - 还不是最终形态
+   - 后续会继续做体验优化
 
 ---
 
-## 13. 当前项目状态摘要
+## 十一、后续计划（GUI V2）
 
-目前已经完成：
+下一阶段 GUI 重点包括：
 
-- 本地部署
-- Git 仓库初始化
-- GitHub 仓库同步
-- 全市场股票池构建
-- 全市场历史库建库
-- 每日增量更新脚本
-- CSV 版全市场扫描
-- I/O 性能诊断
-- Parquet 打包层
-- Parquet 版全市场扫描
+- 参数区中文化
+- 参数 tooltip
+- 当前任务与最近结果拆开显示
+- 进度条与 ETA
+- 大量缺失股票补建前的确认弹窗
+- 结果直接在 GUI 中表格展示
+- 更紧凑、更合理的布局
+- 更清晰的日志摘要与步骤状态
 
-当前最值得继续做的事：
+---
 
-1. 固化 README 和 CHANGELOG
-2. 把主流程进一步整理成一键运行
-3. 设计轻量 GUI 原型
-4. 后续再考虑优先级输出、图形化结果展示、EXE、云端自动化
+## 十二、适合当前阶段的使用建议
+
+### 如果你还在测试 GUI
+- 保持 `base_dir` 指向 `.runtime`
+- 重点测试单按钮：
+  - 同步股票池
+  - 仅更新历史库
+  - 仅打包 Parquet
+  - 仅扫描
+
+### 如果你准备正式使用
+- 将 `app_config.json` 中的 `base_dir` 改到真实完整历史库目录
+- 再使用“一键日更扫描”
+
+---
+
+## 十三、项目定位总结
+
+这个项目当前已经不再只是“几个零散脚本”，而是一条逐步成形的本地 A 股扫描流水线：
+
+- 数据链路已经打通
+- GUI 控制面板已经落地
+- 路径配置、编码、代理等运行环境问题已经开始统一治理
+- 下一阶段主要是 GUI 体验与日常使用效率优化
