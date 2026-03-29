@@ -1,7 +1,13 @@
 from pathlib import Path
 from datetime import datetime
 import json
+import sys
 import pandas as pd
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = Path(r"W:\AshareScanner")
 PACK_FILE = BASE_DIR / "data" / "packed" / "daily_hist_all.parquet"
