@@ -1,0 +1,204 @@
+from pathlib import Path
+from datetime import datetime
+import time
+import pandas as pd
+import akshare as ak
+
+# 固定 50 只样本股，先验证扩样本后的稳定性
+SAMPLE_STOCKS = [
+    ("000001", "平安银行"),
+    ("000002", "万科A"),
+    ("000063", "中兴通讯"),
+    ("000066", "中国长城"),
+    ("000100", "TCL科技"),
+    ("000157", "中联重科"),
+    ("000333", "美的集团"),
+    ("000338", "潍柴动力"),
+    ("000568", "泸州老窖"),
+    ("000651", "格力电器"),
+    ("000725", "京东方A"),
+    ("000858", "五粮液"),
+    ("000876", "新希望"),
+    ("000977", "浪潮信息"),
+    ("001979", "招商蛇口"),
+    ("002049", "紫光国微"),
+    ("002050", "三花智控"),
+    ("002230", "科大讯飞"),
+    ("002415", "海康威视"),
+    ("002594", "比亚迪"),
+    ("002714", "牧原股份"),
+    ("002938", "鹏鼎控股"),
+    ("300014", "亿纬锂能"),
+    ("300015", "爱尔眼科"),
+    ("300033", "同花顺"),
+    ("300059", "东方财富"),
+    ("300124", "汇川技术"),
+    ("300308", "中际旭创"),
+    ("300433", "蓝思科技"),
+    ("300750", "宁德时代"),
+    ("300760", "迈瑞医疗"),
+    ("300782", "卓胜微"),
+    ("300999", "金龙鱼"),
+    ("600000", "浦发银行"),
+    ("600036", "招商银行"),
+    ("600048", "保利发展"),
+    ("600050", "中国联通"),
+    ("600276", "恒瑞医药"),
+    ("600309", "万华化学"),
+    ("600519", "贵州茅台"),
+    ("600887", "伊利股份"),
+    ("601012", "隆基绿能"),
+    ("601166", "兴业银行"),
+    ("601318", "中国平安"),
+    ("601398", "工商银行"),
+    ("601688", "华泰证券"),
+    ("601899", "紫金矿业"),
+    ("603259", "药明康德"),
+    ("603288", "海天味业"),
+    ("688981", "中芯国际"),
+]
+
+DATA_DIR = Path(r"W:\AshareScanner\data")
+OUTPUT_DIR = Path(r"W:\AshareScanner\output")
+LOGS_DIR = Path(r"W:\AshareScanner\logs")
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+today_str = datetime.now().strftime("%Y%m%d")
+result_file = OUTPUT_DIR / f"p2_sample_scan_50_results_{today_str}.csv"
+error_file = OUTPUT_DIR / f"p2_sample_scan_50_errors_{today_str}.csv"
+log_file = LOGS_DIR / f"p2_sample_scan_50_{today_str}.log"
+
+results = []
+errors = []
+
+
+def calc_clv(high_price, low_price, close_price):
+    denominator = high_price - low_price
+    if denominator == 0:
+        return 0
+    return ((close_price - low_price) - (high_price - close_price)) / denominator
+
+
+def fetch_hist_with_retry(symbol, max_retries=3, sleep_seconds=2):
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            df = ak.stock_zh_a_hist(
+                symbol=symbol,
+                period="daily",
+                start_date="20240101",
+                end_date=today_str,
+                adjust="qfq"
+            )
+
+            if df is None or df.empty:
+                raise ValueError("返回结果为空")
+
+            return df
+
+        except Exception as e:
+            last_error = e
+            print(f"[重试] {symbol} 第 {attempt}/{max_retries} 次失败: {repr(e)}")
+            if attempt < max_retries:
+                time.sleep(sleep_seconds)
+
+    raise last_error
+
+
+for idx, (symbol, name) in enumerate(SAMPLE_STOCKS, start=1):
+    print(f"[进度] {idx}/{len(SAMPLE_STOCKS)} 开始处理 {symbol} {name}")
+
+    try:
+        df = fetch_hist_with_retry(symbol)
+
+        required_cols = ["日期", "开盘", "收盘", "最高", "最低", "成交量"]
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            raise ValueError(f"缺少字段: {missing_cols}")
+
+        if len(df) < 25:
+            raise ValueError(f"历史数据不足，当前仅 {len(df)} 行")
+
+        df = df.copy()
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        latest_close = float(latest["收盘"])
+        latest_open = float(latest["开盘"])
+        latest_high = float(latest["最高"])
+        latest_low = float(latest["最低"])
+        latest_volume = float(latest["成交量"])
+        prev_close = float(prev["收盘"])
+
+        pct_change = (latest_close / prev_close - 1) * 100
+
+        prev_5_avg_vol = df.iloc[-6:-1]["成交量"].astype(float).mean()
+        vr5 = latest_volume / prev_5_avg_vol if prev_5_avg_vol != 0 else 0
+
+        clv = calc_clv(latest_high, latest_low, latest_close)
+
+        prev_20_high = df.iloc[-21:-1]["最高"].astype(float).max()
+        br20 = latest_close / prev_20_high if prev_20_high != 0 else 0
+
+        if vr5 >= 1.8 and clv >= 0.3 and br20 >= 0.98:
+            tag = "候选"
+        elif vr5 >= 1.2 and clv >= 0:
+            tag = "观察"
+        else:
+            tag = "放弃"
+
+        results.append({
+            "股票代码": symbol,
+            "股票名称": name,
+            "日期": latest["日期"],
+            "开盘": latest_open,
+            "收盘": latest_close,
+            "最高": latest_high,
+            "最低": latest_low,
+            "涨跌幅%": round(pct_change, 2),
+            "VR5": round(vr5, 2),
+            "CLV": round(clv, 2),
+            "BR20": round(br20, 3),
+            "标签": tag
+        })
+
+        print(f"[完成] {symbol} {name} 成功")
+
+    except Exception as e:
+        errors.append({
+            "股票代码": symbol,
+            "股票名称": name,
+            "错误信息": repr(e)
+        })
+        print(f"[失败] {symbol} {name}: {repr(e)}")
+
+result_df = pd.DataFrame(results)
+if not result_df.empty:
+    result_df = result_df.sort_values(
+        by=["标签", "VR5", "BR20"],
+        ascending=[True, False, False]
+    )
+result_df.to_csv(result_file, index=False, encoding="utf-8-sig")
+
+error_df = pd.DataFrame(errors)
+error_df.to_csv(error_file, index=False, encoding="utf-8-sig")
+
+log_lines = [
+    "P2 sample scan 50 finished",
+    f"sample_total={len(SAMPLE_STOCKS)}",
+    f"success_count={len(results)}",
+    f"error_count={len(errors)}",
+    f"result_file={result_file}",
+    f"error_file={error_file}",
+]
+log_file.write_text("\n".join(log_lines), encoding="utf-8")
+
+print("运行完成")
+print(f"成功数量: {len(results)}")
+print(f"失败数量: {len(errors)}")
+print(f"结果文件: {result_file}")
+print(f"异常文件: {error_file}")
+print(f"日志文件: {log_file}")
