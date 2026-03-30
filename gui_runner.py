@@ -34,6 +34,24 @@ SCAN_OUTPUT_GLOBS = {
     "log": "p7_scan_from_parquet_all_*.log",
 }
 
+UPDATE_OUTPUT_CANDIDATES = [
+    {
+        "script": "p6_update_daily_hist_tushare.py",
+        "summary_glob": "p6_update_daily_hist_tushare_summary_*.csv",
+        "success_glob": "p6_update_daily_hist_tushare_success_*.csv",
+        "errors_glob": "p6_update_daily_hist_tushare_errors_*.csv",
+        "skipped_glob": "p6_update_daily_hist_tushare_skipped_*.csv",
+        "log_glob": "p6_update_daily_hist_tushare_*.log",
+    },
+    {
+        "script": "p6_update_daily_hist.py",
+        "summary_glob": "",
+        "success_glob": "p6_update_daily_hist_success_*.csv",
+        "errors_glob": "p6_update_daily_hist_errors_*.csv",
+        "skipped_glob": "p6_update_daily_hist_skipped_*.csv",
+        "log_glob": "p6_update_daily_hist_*.log",
+    },
+]
 
 def _load_app_config():
     if not APP_CONFIG_FILE.exists():
@@ -59,6 +77,17 @@ OUTPUT_DIR = BASE_DIR / "output"
 LOGS_DIR = BASE_DIR / "logs"
 
 
+WATCHLIST_DIR = OUTPUT_DIR / "watchlist"
+WATCHLIST_SNAPSHOT_DIR = WATCHLIST_DIR / "snapshots"
+WATCHLIST_REVIEW_DIR = WATCHLIST_DIR / "reviews"
+WATCHLIST_OUTPUT_GLOBS = {
+    "master": str(WATCHLIST_DIR / "watchlist_master.csv"),
+    "summary": str(WATCHLIST_DIR / "watchlist_summary_*.csv"),
+    "snapshot": str(WATCHLIST_SNAPSHOT_DIR / "*_watchlist_snapshot.csv"),
+    "log": str(LOGS_DIR / "p8_build_watchlist_*.log"),
+}
+
+
 
 def _notify(event_callback, event_type, step_name, payload=None):
     if event_callback is not None:
@@ -69,12 +98,18 @@ def _notify(event_callback, event_type, step_name, payload=None):
 def get_runtime_info():
     base_dir = BASE_DIR
     mode = "测试目录" if ".runtime" in str(base_dir).lower() else "正式目录"
+    sync_info = get_database_sync_info()
     return {
         "base_dir": str(base_dir),
         "mode": mode,
         "data_dir": str(DATA_DIR),
         "output_dir": str(OUTPUT_DIR),
         "logs_dir": str(LOGS_DIR),
+        "db_sync_date": sync_info.get("sync_display", "未知"),
+        "db_sync_date_raw": sync_info.get("sync_date", ""),
+        "db_sync_source": sync_info.get("source", ""),
+        "db_sync_summary_file": sync_info.get("summary_file", ""),
+        "update_script": sync_info.get("update_script", ""),
     }
 
 
@@ -174,6 +209,7 @@ def _run_script(step_name, script_name, args=None, output_patterns=None, log_cal
             command=command,
         )
         _notify(event_callback, "step_done", step_name, result)
+        _notify(event_callback, "finished", step_name, result)
         return result
 
     failure_message = stderr_text or stdout_text or f"{script_name} failed"
@@ -229,6 +265,115 @@ def _latest_matching_file(directory: Path, pattern: str):
     if not files:
         return None
     return files[-1]
+
+
+def _latest_matching_file_by_mtime(candidates: list[Path]):
+    existing = [path for path in candidates if path.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def _parse_date_like(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return None
+    try:
+        parsed = pd.to_datetime(text, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed
+    except Exception:
+        return None
+
+
+def _format_sync_display(parsed_date):
+    if parsed_date is None:
+        return "未知"
+    return f"{parsed_date.month}月{parsed_date.day}日"
+
+
+def _get_update_script_info():
+    for item in UPDATE_OUTPUT_CANDIDATES:
+        if (PROJECT_DIR / item["script"]).exists():
+            return item
+    return UPDATE_OUTPUT_CANDIDATES[-1]
+
+
+def get_database_sync_info():
+    info = {
+        "sync_date": "",
+        "sync_display": "未知",
+        "source": "未找到更新汇总",
+        "summary_file": "",
+        "update_script": _get_update_script_info()["script"],
+    }
+
+    summary_candidates = []
+    for item in UPDATE_OUTPUT_CANDIDATES:
+        summary_glob = item.get("summary_glob", "")
+        if summary_glob:
+            summary_candidates.extend(OUTPUT_DIR.glob(summary_glob))
+    summary_file = _latest_matching_file_by_mtime(summary_candidates)
+
+    if summary_file is None:
+        return info
+
+    info["summary_file"] = str(summary_file.resolve())
+    info["source"] = summary_file.name
+
+    try:
+        df = _read_csv_safe(str(summary_file))
+        if df.empty:
+            return info
+        row = df.iloc[-1]
+        date_candidates = []
+        for column in ["trade_date_end", "requested_end_date", "update_to_date", "同步至日期", "最新日期"]:
+            if column in df.columns:
+                date_candidates.append(row.get(column))
+        parsed = None
+        for candidate in date_candidates:
+            parsed = _parse_date_like(candidate)
+            if parsed is not None:
+                break
+        if parsed is not None:
+            info["sync_date"] = parsed.strftime("%Y-%m-%d")
+            info["sync_display"] = _format_sync_display(parsed)
+    except Exception:
+        pass
+
+    return info
+
+
+def get_watchlist_output_files():
+    return {
+        key: str(path.resolve()) if path is not None else ""
+        for key, path in {
+            "master": Path(WATCHLIST_OUTPUT_GLOBS["master"]) if Path(WATCHLIST_OUTPUT_GLOBS["master"]).exists() else None,
+            "summary": _latest_matching_file(WATCHLIST_DIR, Path(WATCHLIST_OUTPUT_GLOBS["summary"]).name),
+            "snapshot": _latest_matching_file(WATCHLIST_SNAPSHOT_DIR, Path(WATCHLIST_OUTPUT_GLOBS["snapshot"]).name),
+            "log": _latest_matching_file(LOGS_DIR, Path(WATCHLIST_OUTPUT_GLOBS["log"]).name),
+        }.items()
+    }
+
+
+def load_watchlist_master():
+    files = get_watchlist_output_files()
+    master = _read_csv_safe(files.get("master", ""))
+    return {
+        "files": files,
+        "master": master,
+        "found_any": bool(files.get("master")),
+    }
+
+
+def save_watchlist_master(df: pd.DataFrame):
+    WATCHLIST_DIR.mkdir(parents=True, exist_ok=True)
+    master_path = WATCHLIST_DIR / "watchlist_master.csv"
+    df.to_csv(master_path, index=False, encoding="utf-8-sig")
+    return str(master_path.resolve())
 
 
 
@@ -415,15 +560,19 @@ def bootstrap_missing_stocks(missing_codes=None, log_callback=None, event_callba
 
 
 def update_daily_hist(log_callback=None, event_callback=None):
-    output_patterns = [
-        str(OUTPUT_DIR / f"p6_update_daily_hist_success_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p6_update_daily_hist_errors_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p6_update_daily_hist_skipped_{TODAY_STR}.csv"),
-        str(LOGS_DIR / f"p6_update_daily_hist_{TODAY_STR}.log"),
-    ]
+    script_info = _get_update_script_info()
+    output_patterns = []
+    if script_info.get("summary_glob"):
+        output_patterns.append(str(OUTPUT_DIR / script_info["summary_glob"].replace("*", TODAY_STR)))
+    output_patterns.extend([
+        str(OUTPUT_DIR / script_info["success_glob"].replace("*", TODAY_STR)),
+        str(OUTPUT_DIR / script_info["errors_glob"].replace("*", TODAY_STR)),
+        str(OUTPUT_DIR / script_info["skipped_glob"].replace("*", TODAY_STR)),
+        str(LOGS_DIR / script_info["log_glob"].replace("*", TODAY_STR)),
+    ])
     return _run_script(
         "update_daily_hist",
-        "p6_update_daily_hist.py",
+        script_info["script"],
         output_patterns=output_patterns,
         log_callback=log_callback,
         event_callback=event_callback,
@@ -462,6 +611,24 @@ def scan_from_parquet(log_callback=None, event_callback=None):
     return _run_script(
         "scan_from_parquet",
         "p7_scan_from_parquet_all.py",
+        output_patterns=output_patterns,
+        log_callback=log_callback,
+        event_callback=event_callback,
+    )
+
+
+def build_watchlist(log_callback=None, event_callback=None):
+    WATCHLIST_DIR.mkdir(parents=True, exist_ok=True)
+    WATCHLIST_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    output_patterns = [
+        str(WATCHLIST_DIR / "watchlist_master.csv"),
+        str(WATCHLIST_DIR / f"watchlist_summary_{TODAY_STR}.csv"),
+        str(WATCHLIST_SNAPSHOT_DIR / f"{TODAY_STR}_watchlist_snapshot.csv"),
+        str(LOGS_DIR / f"p8_build_watchlist_{TODAY_STR}.log"),
+    ]
+    return _run_script(
+        "build_watchlist",
+        "p8_build_watchlist.py",
         output_patterns=output_patterns,
         log_callback=log_callback,
         event_callback=event_callback,
