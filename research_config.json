@@ -1,0 +1,56 @@
+{
+  "start_date": "2025-03-01",
+  "end_date": "",
+  "output_prefix": "p9_research_dataset",
+  "include_all_rows": false,
+  "min_future_days": 2,
+  "sample_filter": "hard_pass_or_watch",
+  "primary_success_label": "success_composite_flag",
+  "success_labels": {
+    "d1_stable": {
+      "min_rules_hit": 2,
+      "require_close_ge_d0": true,
+      "require_close_ge_mid": true,
+      "require_bullish_close": true
+    },
+    "d2_sellable": {
+      "min_d2_high_ret_pct": 2.0,
+      "allow_target1_hit": true
+    },
+    "composite": {
+      "mode": "d1_stable_and_d2_sellable"
+    }
+  },
+  "feature_columns": [
+    "volume_ratio_prev1",
+    "vr5",
+    "clv",
+    "br20",
+    "d0_turnover",
+    "d0_range_vol",
+    "cold_max_volume",
+    "d0_turnover_f",
+    "d0_volume_ratio_basic",
+    "d0_total_mv",
+    "d0_circ_mv",
+    "d0_limit_up_space_pct",
+    "d0_big_order_net_amount",
+    "d0_big_order_net_ratio",
+    "list_age_days"
+  ],
+  "raw_sync": {
+    "start_date": "2024-07-01",
+    "datasets": [
+      "trade_cal",
+      "stock_basic",
+      "daily_basic",
+      "adj_factor",
+      "stk_limit",
+      "moneyflow"
+    ]
+  },
+  "notes": {
+    "purpose": "D0-D1-D2 历史事件样本分析（并行成功标签）",
+    "edit_me": "先同步 research_raw，再构建 P9，再做 P10。"
+  }
+}

@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-03-31 Version 3
+
+### Added
+- 新增研究实验室数据同步与分析链路：
+  - `p8_sync_research_raw_tushare.py`
+  - `p9_build_research_dataset.py`
+  - `p10_analyze_research_dataset.py`
+  - `p11_discover_parameter_ranges.py`
+- 新增研究链路说明文档：
+  - `README_RESEARCH_LAB.md`
+  - `README_RESEARCH_LAB_SYNC.md`
+  - `README_RESEARCH_LABELS.md`
+  - `README_Adaptive_Analysis.md`
+  - `README_PARAMETER_INTERVAL_V1.md`
+- 新增研究配置文件：
+  - `research_config.json`
+  - `parameter_interval_config.json`
+
+### Changed
+- `p9_build_research_dataset.py` 改为按股票分批处理、按批次写出数据集，降低 8G 内存机器在大样本区间下的峰值内存占用。
+- 研究样本构建流程改为按批次加载 `daily_basic / adj_factor / stk_limit / moneyflow`，不再把全量 research_raw 映射一次性常驻内存。
+- 研究样本输出改为增量写 parquet，并只保留前 20 万行 CSV 预览，保持原有输出口径同时减少内存压力。
+
+### Notes
+- 当前 GitHub 版本从“扫描生产线 V2”扩展为“生产线 + 研究实验室”双链路版本。
+- 研究实验室链路默认围绕 D0-D1-D2 事件样本、并行成功标签和参数区间发现展开。
+- `p9_build_research_dataset.py` 的当前版本优先保证在低内存 Windows 机器上可稳定跑完，而不是追求一次性全量驻留内存的实现方式。
+
 ## 2026-03-29 Version 2
 
 ### Added
