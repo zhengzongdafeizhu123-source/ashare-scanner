@@ -31,6 +31,7 @@ DEFAULT_RESEARCH_CONFIG_FILE = PROJECT_DIR / "research_config.json"
 PREVIEW_ROW_LIMIT = 200_000
 DEFAULT_BATCH_SIZE_SYMBOLS = 200
 PACK_REQUIRED_COLS = ["股票代码", "股票名称", "日期", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "换手率"]
+NULLABLE_INT_COLUMNS = ["d0_hit_count", "d1_stable_score", "list_age_days"]
 RAW_MAP_SPECS = {
     "daily_basic": {
         "path_parts": ("daily_basic", "daily_basic.parquet"),
@@ -741,6 +742,16 @@ def summarize_batch(batch_df: pd.DataFrame) -> dict[str, int]:
     }
 
 
+def coerce_output_schema(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    work = df.copy()
+    for col in NULLABLE_INT_COLUMNS:
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce").astype("Int64")
+    return work
+
+
 def main():
     base_dir = resolve_base_dir()
     pack_file = base_dir / "data" / "packed" / "daily_hist_all.parquet"
@@ -831,7 +842,7 @@ def main():
                     batch_event_rows.extend(rows)
 
             if batch_event_rows:
-                batch_df = pd.DataFrame(batch_event_rows)
+                batch_df = coerce_output_schema(pd.DataFrame(batch_event_rows))
                 batch_stats = summarize_batch(batch_df)
                 for key, value in batch_stats.items():
                     totals[key] += int(value)
