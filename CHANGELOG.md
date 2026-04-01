@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-04-01 Version 4
+
+### Added
+- 补充最新版项目总文档，统一沉淀为主 README：
+  - `README.md`
+
+### Changed
+- 修复 `p9_build_research_dataset.py` 在分批写入 parquet 时的 schema 不一致问题，统一 `list_age_days`、`d0_hit_count`、`d1_stable_score` 等批次字段类型，避免 `ValueError: Table schema does not match schema used to create file`。
+- 将多份专题 README 的信息汇总回主文档，主 README 现在同时覆盖：
+  - 项目背景与目标
+  - 目录结构与数据链路
+  - GUI 按钮与 Watchlist 说明
+  - 生产线与研究线输入输出
+  - 主要配置文件参数解释
+- 清理已被主文档覆盖的旧说明文件，减少项目根目录噪音。
+
+### Removed
+- 删除以下已被主 README 吸收的历史文档：
+  - `README_Adaptive_Analysis.md`
+  - `README_PARAMETER_INTERVAL_V1.md`
+  - `README_RESEARCH_LAB.md`
+  - `README_RESEARCH_LAB_SYNC.md`
+  - `README_RESEARCH_LABELS.md`
+  - `README_TUSHARE_MIGRATION.md`
+  - `README_PACKAGE.txt`
+  - `README_newest.md`
+- 删除空占位文件：
+  - `git`
+
+### Notes
+- 这一版主要是“稳定性修复 + 文档收敛”版本，功能口径未变。
+- 经过这轮整理后，项目根目录的主要入口文档只保留 `README.md` 和 `CHANGELOG.md`。
+
 ## 2026-03-31 Version 3
 
 ### Added
@@ -27,6 +60,30 @@
 - 当前 GitHub 版本从“扫描生产线 V2”扩展为“生产线 + 研究实验室”双链路版本。
 - 研究实验室链路默认围绕 D0-D1-D2 事件样本、并行成功标签和参数区间发现展开。
 - `p9_build_research_dataset.py` 的当前版本优先保证在低内存 Windows 机器上可稳定跑完，而不是追求一次性全量驻留内存的实现方式。
+
+## 2026-03-30 Version 2.5
+
+### Added
+- 新增 Tushare 迁移与日更相关脚本：
+  - `p4_bootstrap_hist_all_tushare.py`
+  - `p6_update_daily_hist_tushare.py`
+- 新增正式观察清单构建脚本：
+  - `p8_build_watchlist.py`
+- 新增 Tushare 配置文件：
+  - `tushare_config.json`
+- 新增迁移与打包说明文档：
+  - `README_TUSHARE_MIGRATION.md`
+  - `README_PACKAGE.txt`
+
+### Changed
+- `gui_app.py` 与 `gui_runner.py` 进行大幅重构，GUI 从“能跑”升级为更完整的操作台，工作流更贴近日常生产流程。
+- 本地扫描链路与一键流程继续细化，界面中的配置读取、目录打开、结果展示、日志输出和任务串联更加完整。
+- `p7_scan_from_parquet_all.py` 与 `scan_config.json` 继续调整，以适配 watchlist 生产逻辑和新的日更链路。
+- 明确 Watchlist 在项目中的定位：它不是扫描原始结果，而是从扫描结果中提炼出的交易观察清单。
+
+### Notes
+- 这一轮提交把项目从“扫描器”进一步推进成“带 GUI 的日常工作台”。
+- 数据源路径开始从 AkShare 单线演进为“AkShare 旧库 + Tushare 日更/迁移”的过渡形态。
 
 ## 2026-03-29 Version 2
 
@@ -56,16 +113,16 @@
   - `--universe-file`
   - `--start-date`
   - `--skip-existing`
-  使其支持只对缺失股票进行补建，而不是只能按批次初始化建库
-- `gui_runner.py` 改为通过 `p4_bootstrap_hist_all_resume.py` 补建缺失股票，不再在 runner 内重复实现历史数据抓取逻辑
-- `p3_build_universe.py`、`p6_update_daily_hist.py`、`p6b_pack_hist_to_parquet.py`、`p7_scan_from_parquet_all.py` 全部改为基于 `app_config.json` 解析路径，而不是依赖固定硬编码目录
+  使其支持只对缺失股票进行补建，而不是只能按批次初始化建库。
+- `gui_runner.py` 改为通过 `p4_bootstrap_hist_all_resume.py` 补建缺失股票，不再在 runner 内重复实现历史数据抓取逻辑。
+- `p3_build_universe.py`、`p6_update_daily_hist.py`、`p6b_pack_hist_to_parquet.py`、`p7_scan_from_parquet_all.py` 全部改为基于 `app_config.json` 解析路径，而不是依赖固定硬编码目录。
 
 ### Fixed
-- 统一关键脚本的 UTF-8 stdout/stderr 配置，修复 Windows GUI 子进程中文输出编码问题
-- 清理异常代理变量（如 `127.0.0.1:9`），减少 AkShare 请求因坏代理导致的失败
-- 修复 `p3_build_universe.py` 在不可写目录下写日志/输出失败的问题
-- 修复 `gui_runner.py` 与 `p4_bootstrap_hist_all_resume.py` 在 universe 文件定位上的不一致问题
-- 修复 GUI 一键流程在测试目录下只能读取少量样本文件时，缺失股票补建链路无法正确衔接的问题
+- 统一关键脚本的 UTF-8 stdout/stderr 配置，修复 Windows GUI 子进程中文输出编码问题。
+- 清理异常代理变量（如 `127.0.0.1:9`），减少 AkShare 请求因坏代理导致的失败。
+- 修复 `p3_build_universe.py` 在不可写目录下写日志/输出失败的问题。
+- 修复 `gui_runner.py` 与 `p4_bootstrap_hist_all_resume.py` 在 universe 文件定位上的不一致问题。
+- 修复 GUI 一键流程在测试目录下只能读取少量样本文件时，缺失股票补建链路无法正确衔接的问题。
 
 ### Notes
 - 当前 GUI 已可完成基础联调：
@@ -73,31 +130,33 @@
   - 仅更新历史库
   - 仅打包 Parquet
   - 仅扫描
-- 当前 `.runtime` 目录仅用于隔离测试；若在该目录执行“一键日更扫描”，由于本地历史库不完整，会触发大规模缺失股票补建，耗时较长
+- 当前 `.runtime` 目录仅用于隔离测试；若在该目录执行“一键日更扫描”，由于本地历史库不完整，会触发大规模缺失股票补建，耗时较长。
 
 ## 2026-03-29 Version 1
 
 ### Added
-- 新增 `p6b_pack_hist_to_parquet.py`，用于把全市场 CSV 历史库打包为单个 Parquet 文件
-- 新增 `p7_scan_from_parquet_all.py`，用于基于 Parquet 做全市场扫描
-- 新增 `p7_profile_io.py`，用于分析 CSV 逐文件扫描的 I/O 耗时
-- 新增 `p7_probe_file_format.py`，用于排查慢文件是否存在编码或格式异常
-- 新增 `CHANGELOG.md`，用于记录项目更新历史
-- 更新 `README.md`，补充项目结构、脚本说明、推荐工作流、GUI 路线与仓库边界
+- 新增 `p6b_pack_hist_to_parquet.py`，用于把全市场 CSV 历史库打包为单个 Parquet 文件。
+- 新增 `p7_scan_from_parquet_all.py`，用于基于 Parquet 做全市场扫描。
+- 新增 `p7_profile_io.py`，用于分析 CSV 逐文件扫描的 I/O 耗时。
+- 新增 `p7_probe_file_format.py`，用于排查慢文件是否存在编码或格式异常。
+- 新增 `p8_priority_from_results.py`，用于从扫描结果生成优先级视角的辅助输出。
+- 新增 `scan_rules.py`，统一沉淀核心扫描规则。
+- 新增 `CHANGELOG.md`，用于记录项目更新历史。
+- 更新 `README.md`，补充项目结构、脚本说明、推荐工作流、GUI 路线与仓库边界。
 
 ### Changed
-- 将扫描主流程从“CSV 逐文件直扫”升级为“Parquet 打包后扫描”
-- 明确 `p7_scan_from_parquet_all.py` 为当前推荐主力扫描脚本
-- 保留 `p7_scan_from_local_all.py` 作为 CSV 直扫对照版，而不再作为默认日常扫描版本
+- 将扫描主流程从“CSV 逐文件直扫”升级为“Parquet 打包后扫描”。
+- 明确 `p7_scan_from_parquet_all.py` 为当前推荐主力扫描脚本。
+- 保留 `p7_scan_from_local_all.py` 作为 CSV 直扫对照版，而不再作为默认日常扫描版本。
 - 将 `scan_config.json` 中的主扫描参数调整为更可用的区间：
   - `volatility_max: 0.35`
   - `volume_multiplier: 2.0`
   - `turnover_min: 5.0`
 
 ### Fixed
-- 通过 profiling 发现项目瓶颈不在规则计算，而在连续读取 5000+ 小 CSV 的 I/O 开销
-- 排除了“慢文件格式异常”这一假设，确认问题主要来自批量小文件读取方式
-- 使用 Parquet 打包后，扫描结果与 CSV 版一致，同时速度大幅提升
+- 通过 profiling 发现项目瓶颈不在规则计算，而在连续读取 5000+ 小 CSV 的 I/O 开销。
+- 排除了“慢文件格式异常”这一假设，确认问题主要来自批量小文件读取方式。
+- 使用 Parquet 打包后，扫描结果与 CSV 版一致，同时速度大幅提升。
 
 ### Current verified result
 - 股票数量：5012
@@ -108,3 +167,27 @@
 - 观察数量：133
 - 跳过数量：30
 - 失败数量：0
+
+## 2026-03-29 Version 0
+
+### Added
+- 初始化项目代码仓库。
+- 建立最早期的 CSV 本地扫描主链路：
+  - `p1_single_stock_test.py`
+  - `p2_sample_scan.py`
+  - `p2_sample_scan_50.py`
+  - `p3_build_universe.py`
+  - `p4_bootstrap_hist_100.py`
+  - `p4_bootstrap_hist_all_resume.py`
+  - `p5_scan_from_local_100.py`
+  - `p5_scan_from_local_100_diagnose.py`
+  - `p6_update_daily_hist.py`
+  - `p7_scan_from_local_all.py`
+- 新增基础配置与环境探针：
+  - `scan_config.json`
+  - `test_env.py`
+- 新增项目首版 `README.md`，完成最初的目标说明、目录说明与使用方法记录。
+
+### Notes
+- 这一版对应项目从 0 到 1 的启动期，核心能力还是“本地 CSV 历史库 + 规则扫描”。
+- 后续的 Parquet 化、GUI 化、Watchlist 化和研究实验室链路，都是在这个起点上逐步演进出来的。
