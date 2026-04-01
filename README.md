@@ -32,6 +32,8 @@
 
 以下内容来自当前 `W:\AshareScanner` 下的最新真实产物，代表项目现在已经跑到的状态。
 
+注意：这里的 `W:\AshareScanner` 是**当前机器 / 历史环境示例路径**，不是所有协作者都必须照抄的固定目录。
+
 ### 2.1 生产库状态
 
 - 最新股票池汇总：`2026-03-31`
@@ -43,7 +45,7 @@
 
 ### 2.2 最新扫描状态
 
-最新主扫描汇总文件：`output/p7_scan_from_parquet_all_summary_20260331.csv`
+最新主扫描汇总文件：`output/scan/p7_scan_from_parquet_all_summary_20260331.csv`
 
 - 扫描股票数：`5016`
 - 有效结果数：`4984`
@@ -92,6 +94,8 @@
 ## 3. 根目录结构
 
 当前你所有项目相关文件都在 `W:\AshareScanner` 下。
+
+注意：这里描述的是**当前机器示例目录结构**；新协作者应以自己机器上的 `base_dir` 为准。
 
 ```text
 W:\AshareScanner
@@ -165,9 +169,15 @@ W:\AshareScanner
 
 重要子目录：
 
+- `output/universe/`
+- `output/bootstrap/`
+- `output/maintenance/`
+- `output/diagnostics/`
+- `output/scan/`
 - `output/watchlist/`
 - `output/research/`
 - `output/research_raw_sync/`
+- `output/samples/`
 
 ### 3.3 `logs/`
 
@@ -209,19 +219,53 @@ Conda 环境列表显示：
 
 ### 4.1 正式目录
 
-当前 `app_config.json` 指向：
+现在项目已经把“公共配置”和“个人本地配置”拆开：
+
+- `app_config.example.json`
+  公共模板，给新协作者参考
+- `app_config.json`
+  公共仓库默认配置，当前默认指向 `.runtime`
+- `app_config.local.json`
+  每个人自己的本地真实配置，不进 Git
+
+当前运行时读取顺序是：
+
+1. 环境变量：`ASHARE_APP_CONFIG` / `ASHARE_BASE_DIR` / `ASHARE_OUTPUT_PROFILE`
+2. `app_config.local.json`
+3. `app_config.json`
+4. `app_config.example.json`
+5. 旧版兼容兜底：若存在 `W:\AshareScanner` 则回退到它
+6. 最后再回退到 `project/.runtime`
+
+也就是说：
+
+- 公共仓库默认更安全，优先落到 `.runtime`
+- 真正的个人正式目录应该写在 `app_config.local.json`
+- `main/test` 只切 `output/...` 这一层输出目录
+- 真正决定整套 `data/output/logs` 根目录的是 `base_dir`
+
+一个本地正式配置示例是：
+
+重点：下面真正需要每个协作者自己改的是 `base_dir`。
 
 ```json
 {
-  "base_dir": "W:\\AshareScanner"
+  "base_dir": "C:\\Users\\你的用户名\\OneDrive\\AshareScanner",
+  "output_profile": "main"
 }
 ```
 
-这意味着 GUI 和主脚本默认读写正式目录：
+重点提醒：
 
-- `W:\AshareScanner\data`
-- `W:\AshareScanner\output`
-- `W:\AshareScanner\logs`
+- `base_dir` 要改成你自己机器上的实际正式目录
+- `output_profile` 通常先保持 `main`
+- 不要把别人的 OneDrive 路径直接照抄到自己机器
+
+这意味着 GUI 和主脚本会把正式数据读写到：
+
+- `base_dir/data`
+- `base_dir/output`
+- `base_dir/logs`
 
 ### 4.2 `.runtime` 测试目录
 
@@ -249,6 +293,25 @@ Conda 环境列表显示：
 - 测功能时适合 `.runtime`
 - 跑正式全流程时应使用正式目录
 
+### 4.3 接手前判断与本轮路径收口
+
+接手前，这个仓库更接近“B 类状态：部分统一，部分混用”。
+
+原因是：
+
+- 主流程已经大体围绕 `app_config.json -> base_dir` 在走
+- 但不少核心脚本各自重复实现了 `load_app_config()` / `resolve_base_dir()`
+- 这些脚本里还残留 `W:\AshareScanner` 一类个人化默认值
+- GUI / runner 和部分脚本已经开始走统一路径模块，但生产主链路与研究链路里仍有“统一配置 + 写死兜底”并存的情况
+- `.runtime` 本来就是通过 `base_dir` 切过去的，因此本轮没有删除这个接入方式
+
+这次整理遵循“最小侵入、兼容现有流程”的原则：
+
+- 把 `base_dir` 与 `output_profile` 的解析收口到统一入口
+- 尽量不改变既有正式流程的调用方式
+- 保留旧行为兼容兜底，避免老机器突然跑不起来
+- 保留 `.runtime` 作为测试沙箱
+
 ---
 
 ## 5. 整体数据链路
@@ -257,7 +320,7 @@ Conda 环境列表显示：
 
 ```text
 p3_build_universe.py
-    -> output/p3_universe_filtered_*.csv
+    -> output/universe/p3_universe_filtered_*.csv
     -> 作为“应该存在的股票清单”
 
 gui_runner.find_missing_stocks()
@@ -265,16 +328,18 @@ gui_runner.find_missing_stocks()
     -> 得到缺失股票列表
 
 p4_bootstrap_hist_all_resume.py 或 p4_bootstrap_hist_all_tushare.py
+    -> output/bootstrap/*
     -> 把缺失股票历史补齐到 data/daily_hist/*.csv
 
 p6_update_daily_hist_tushare.py
+    -> output/maintenance/*
     -> 对已有历史库做按日期批量日更
 
 p6b_pack_hist_to_parquet.py
     -> data/packed/daily_hist_all.parquet
 
 p7_scan_from_parquet_all.py
-    -> output/results/selected/candidate/watch/errors/skipped/summary
+    -> output/scan/results/selected/candidate/watch/errors/skipped/summary
 
 p8_build_watchlist.py
     -> output/watchlist/watchlist_master.csv
@@ -673,21 +738,70 @@ D0 最小换手率。
 
 ## 8.1 `app_config.json`
 
-当前内容：
+当前推荐做法：
+
+- `app_config.example.json`：公共模板
+- `app_config.json`：公共默认配置，建议保持可安全提交
+- `app_config.local.json`：个人机器真实路径，优先级最高，不提交
+
+当前仓库默认内容：
 
 ```json
 {
-  "base_dir": "W:\\AshareScanner"
+  "base_dir": ".runtime",
+  "output_profile": "main"
 }
 ```
 
 含义：
 
-- 定义所有运行数据目录的根
+- `base_dir` 定义所有运行数据目录的根
+- `output_profile` 决定输出写到 `output/main/...` 还是 `output/test/...`
 - GUI 和主脚本都会据此解析：
   - `data/`
   - `output/`
   - `logs/`
+
+一定要分清：
+
+- `output_profile = main/test` 只是在同一个 `base_dir` 下切换 `output/main/...` 与 `output/test/...`
+- 它不会切走 `data/`，也不会把 `logs/` 切到另一套目录
+- 真正决定整套运行根目录的是 `base_dir`
+
+本地机器真正应该修改的是 `app_config.local.json`，而不是公共仓库里的 `app_config.json`。
+
+本轮和路径治理直接相关的关键文件是：
+
+- `project_paths.py`
+  统一配置入口，负责解析 `base_dir`、`output_profile`、输出目录分层和运行时优先级
+- `app_config.example.json`
+  公共模板，给新协作者参考
+- `app_config.json`
+  可安全提交的公共默认配置，当前默认指向 `.runtime`
+- `app_config.local.json`
+  每台机器自己的真实配置，已被忽略，不进入 Git
+- `.gitignore`
+  已加入 `app_config.local.json`，避免 pull / push 覆盖本地路径
+- `switch_output_profile.py`
+  现在只写本地配置，不再改公共配置
+
+当前已经改成通过统一模块取 `base_dir` 的入口脚本包括：
+
+- `p3_build_universe.py`
+- `p4_bootstrap_hist_all_resume.py`
+- `p4_bootstrap_hist_all_tushare.py`
+- `p6_update_daily_hist.py`
+- `p6_update_daily_hist_tushare.py`
+- `p6b_pack_hist_to_parquet.py`
+- `p7_scan_from_parquet_all.py`
+- `p8_build_watchlist.py`
+- `p8_sync_research_raw_tushare.py`
+- `p9_build_research_dataset.py`
+
+另外顺手去个人化了两个辅助入口：
+
+- `activate_a_share.bat`
+- `test_env.py`
 
 ## 8.2 `scan_config.json`
 
@@ -771,6 +885,8 @@ D0 最小换手率。
 - 它是敏感文件
 - README 只说明用途，不应展示真实 token
 - 也可以使用环境变量 `TUSHARE_TOKEN`
+- 当前它还没有拆成 `tushare_config.example.json + tushare_config.local.json`
+- 这意味着多人协作时，仍然可能出现 token 被互相覆盖，或敏感配置被误提交到远端的风险
 
 ---
 
@@ -794,9 +910,9 @@ D0 最小换手率。
 
 输出：
 
-- `output/p3_universe_raw_YYYYMMDD.csv`
-- `output/p3_universe_filtered_YYYYMMDD.csv`
-- `output/p3_universe_summary_YYYYMMDD.csv`
+- `output/universe/p3_universe_raw_YYYYMMDD.csv`
+- `output/universe/p3_universe_filtered_YYYYMMDD.csv`
+- `output/universe/p3_universe_summary_YYYYMMDD.csv`
 - `logs/p3_build_universe_YYYYMMDD.log`
 
 过滤逻辑：
@@ -827,9 +943,9 @@ D0 最小换手率。
 输出：
 
 - `data/daily_hist/*.csv`
-- `output/p4_bootstrap_all_success_*.csv`
-- `output/p4_bootstrap_all_errors_*.csv`
-- `output/p4_bootstrap_all_skipped_*.csv`
+- `output/bootstrap/p4_bootstrap_all_success_*.csv`
+- `output/bootstrap/p4_bootstrap_all_errors_*.csv`
+- `output/bootstrap/p4_bootstrap_all_skipped_*.csv`
 - `logs/p4_bootstrap_all_*.log`
 
 ### `p4_bootstrap_hist_all_tushare.py`
@@ -848,10 +964,10 @@ D0 最小换手率。
 输出：
 
 - `data/daily_hist/*.csv`
-- `output/p4_bootstrap_tushare_success_*.csv`
-- `output/p4_bootstrap_tushare_errors_*.csv`
-- `output/p4_bootstrap_tushare_skipped_*.csv`
-- `output/p4_bootstrap_tushare_summary_*.csv`
+- `output/bootstrap/p4_bootstrap_tushare_success_*.csv`
+- `output/bootstrap/p4_bootstrap_tushare_errors_*.csv`
+- `output/bootstrap/p4_bootstrap_tushare_skipped_*.csv`
+- `output/bootstrap/p4_bootstrap_tushare_summary_*.csv`
 
 ### `p6_update_daily_hist_tushare.py`
 
@@ -875,10 +991,10 @@ D0 最小换手率。
 
 输出：
 
-- `output/p6_update_daily_hist_tushare_success_*.csv`
-- `output/p6_update_daily_hist_tushare_errors_*.csv`
-- `output/p6_update_daily_hist_tushare_skipped_*.csv`
-- `output/p6_update_daily_hist_tushare_summary_*.csv`
+- `output/maintenance/p6_update_daily_hist_tushare_success_*.csv`
+- `output/maintenance/p6_update_daily_hist_tushare_errors_*.csv`
+- `output/maintenance/p6_update_daily_hist_tushare_skipped_*.csv`
+- `output/maintenance/p6_update_daily_hist_tushare_summary_*.csv`
 - `logs/p6_update_daily_hist_tushare_*.log`
 
 口径补充：
@@ -902,8 +1018,8 @@ D0 最小换手率。
 输出：
 
 - `data/packed/daily_hist_all.parquet`
-- `output/p6b_pack_hist_summary_*.csv`
-- `output/p6b_pack_hist_errors_*.csv`
+- `output/maintenance/p6b_pack_hist_summary_*.csv`
+- `output/maintenance/p6b_pack_hist_errors_*.csv`
 - `logs/p6b_pack_hist_*.log`
 
 ### `p7_scan_from_parquet_all.py`
@@ -919,13 +1035,13 @@ D0 最小换手率。
 
 输出：
 
-- `output/p7_scan_from_parquet_all_results_*.csv`
-- `output/p7_scan_from_parquet_all_selected_*.csv`
-- `output/p7_scan_from_parquet_all_candidate_*.csv`
-- `output/p7_scan_from_parquet_all_watch_*.csv`
-- `output/p7_scan_from_parquet_all_errors_*.csv`
-- `output/p7_scan_from_parquet_all_skipped_*.csv`
-- `output/p7_scan_from_parquet_all_summary_*.csv`
+- `output/scan/p7_scan_from_parquet_all_results_*.csv`
+- `output/scan/p7_scan_from_parquet_all_selected_*.csv`
+- `output/scan/p7_scan_from_parquet_all_candidate_*.csv`
+- `output/scan/p7_scan_from_parquet_all_watch_*.csv`
+- `output/scan/p7_scan_from_parquet_all_errors_*.csv`
+- `output/scan/p7_scan_from_parquet_all_skipped_*.csv`
+- `output/scan/p7_scan_from_parquet_all_summary_*.csv`
 - `logs/p7_scan_from_parquet_all_*.log`
 
 ### `p8_build_watchlist.py`
@@ -1199,7 +1315,11 @@ VS Code 本地设置，指定解释器和终端自动激活环境。
 |---|---|---|
 | `gui_app.py` | GUI 主入口 | 当前生产操作主入口 |
 | `gui_runner.py` | GUI 编排层 | 当前生产调度核心 |
-| `app_config.json` | 根目录配置 | 必要 |
+| `app_config.example.json` | 公共配置模板 | 新协作者参考 |
+| `app_config.json` | 公共默认配置 | 共享回退配置 |
+| `app_config.local.json` | 本地真实配置 | 每人各自维护，不提交 |
+| `project_paths.py` | 统一路径解析入口 | 当前路径治理核心 |
+| `switch_output_profile.py` | 切换 `main/test` 输出档位 | 只改本地配置 |
 | `scan_config.json` | 扫描参数 | 必要 |
 | `research_config.json` | 研究参数 | 研究必需 |
 | `parameter_interval_config.json` | P11 参数区间配置 | 研究可选 |
@@ -1270,6 +1390,31 @@ VS Code 本地设置，指定解释器和终端自动激活环境。
 
 ## 12. 新同事上手顺序
 
+如果你需要一份可直接照着执行的值班手册，请优先阅读：
+
+- [README_ZYB_SOP.md](/w:/AshareScanner/project/README_ZYB_SOP.md)
+
+新协作者第一次 clone 后，最简步骤是：
+
+1. 复制 `app_config.example.json` 的结构，在本地创建 `app_config.local.json`
+2. 把 `base_dir` 改成自己机器上的正式数据根目录
+3. 保持公共 `app_config.json` 不动
+4. 如需切换正式/测试输出，可运行：
+   `python switch_output_profile.py main`
+   或
+   `python switch_output_profile.py test`
+5. 如需确认当前配置来源，可优先检查：
+   - `app_config.local.json`
+   - `app_config.json`
+   - 环境变量 `ASHARE_BASE_DIR` / `ASHARE_OUTPUT_PROFILE`
+
+当前仓库已验证以下行为：
+
+- 本机会优先读取 `app_config.local.json`
+- 公共 `app_config.json` 保持安全默认值，不再带个人正式路径
+- `main/test` 切换只修改本地配置
+- `.runtime` 仍然保留可用
+
 建议新人按这个顺序理解项目。
 
 ### 第一步：理解目录
@@ -1285,15 +1430,16 @@ VS Code 本地设置，指定解释器和终端自动激活环境。
 
 先读：
 
-1. `app_config.json`
-2. `scan_config.json`
-3. `gui_runner.py`
-4. `gui_app.py`
-5. `p3_build_universe.py`
-6. `p6_update_daily_hist_tushare.py`
-7. `p6b_pack_hist_to_parquet.py`
-8. `p7_scan_from_parquet_all.py`
-9. `p8_build_watchlist.py`
+1. `project_paths.py`
+2. `app_config.json`
+3. `scan_config.json`
+4. `gui_runner.py`
+5. `gui_app.py`
+6. `p3_build_universe.py`
+7. `p6_update_daily_hist_tushare.py`
+8. `p6b_pack_hist_to_parquet.py`
+9. `p7_scan_from_parquet_all.py`
+10. `p8_build_watchlist.py`
 
 ### 第三步：理解研究链路
 
@@ -1315,29 +1461,37 @@ VS Code 本地设置，指定解释器和终端自动激活环境。
 
 ---
 
-## 13. 当前最重要的注意事项
+## 13. 当前最重要的注意事项与残余风险
 
-1. 当前正式 `base_dir` 已经是 `W:\AshareScanner`  
-   所有 GUI 操作都会影响正式数据和正式输出。
+1. `project_paths.py` 里仍保留 `LEGACY_BASE_DIR = W:\AshareScanner`  
+   意义：这是旧行为兼容兜底；当环境变量、本地配置、公共配置都没有生效时，如果机器上恰好存在 `W:\AshareScanner`，程序仍可按旧习惯启动。  
+   成因：本轮目标是“最小侵入、兼容现有流程”，所以没有直接删除旧路径兜底，而是把它降成低优先级 fallback。  
+   后果：老机器不容易突然跑不起来；但如果某台机器也存在 `W:\AshareScanner`，且操作者没配好本地配置，程序可能静默回退到这个旧目录，形成误连风险。
 
-2. `tushare_config.json` 是敏感文件  
-   不要把真实 token 写进公开文档或公开仓库。
+2. `tushare_config.json` 还没有拆成本地配置  
+   意义：它目前仍然是公共仓库里的单文件 token 配置入口。  
+   成因：这轮优先收口的是 `base_dir`、`output_profile` 和 `data/output/logs/.runtime` 的路径问题，没有连带把 token 配置体系一起重构。  
+   后果：协作者之间仍可能互相覆盖 token；如果文件被误提交到远端，还会有敏感信息泄露风险。
 
-3. `p9_build_research_dataset.py` 已改为分批省内存版本  
-   在 8G 机器上建议继续使用较小批次。
+3. 不是所有配置都走统一 local override 机制  
+   意义：这次统一的是运行根目录和输出 profile，不是整个配置生态。  
+   成因：为了避免大面积重构，本轮只优先收口最容易互相覆盖、且影响面最大的路径入口。  
+   后果：路径冲突已经大幅收敛，但 `scan_config.json`、`research_config.json`、`parameter_interval_config.json` 等公共配置在多人协作时仍可能发生配置冲突。
 
-4. 生产链路和研究链路故意解耦  
-   研究脚本不直接挂到 GUI 按钮上，是为了不影响日常生产流程稳定性。
+4. `.runtime` 仍然通过 `base_dir` 切换，而不是独立模式开关  
+   意义：`.runtime` 依旧属于“整套运行根目录切换”，而不是只切输出目录。  
+   成因：这是项目既有接入方式；为了兼容既有测试沙箱流程，本轮没有额外发明另一套独立的 test-data 模式。  
+   后果：如果有人把 `app_config.local.json` 的 `base_dir` 直接改成 `.runtime`，那切走的是整套 `data/output/logs`，而不只是 `output/test`。这和 `output_profile = main/test` 是两层不同机制，容易被混淆。
 
-5. 旧脚本仍保留  
-   主要用于：
-   - 历史追溯
-   - 对比旧方案
-   - 诊断
-   - 快速小样本验证
+5. README 中仍然保留了一些本机路径示例  
+   意义：这些路径主要用于说明目录结构、示例命令和当前机器的真实落地方式。  
+   成因：README 同时承担“项目说明”和“当前机器运行说明”，因此仍保留了部分 `W:\AshareScanner`、`C:\Users\...` 一类示例文本。  
+   后果：它们不会影响代码执行，但可能对新协作者造成认知误导，让人误以为必须照抄这些路径。
 
-6. 旧 README 文档已经基本被本文件吸收  
-   后续如果做文档收敛，应该以本文件作为唯一主文档，再删除主题重复、阶段性过时的说明文件
+6. 生产链路和研究链路仍然故意解耦  
+   意义：研究脚本没有直接挂到 GUI 按钮上。  
+   成因：这是为了保持日常生产流程稳定，不让实验性分析逻辑直接影响正式扫描。  
+   后果：好处是生产更稳；代价是新协作者第一次接手时，需要额外理解“GUI 主链路”和“研究链路”是两套并行工作流。
 
 ---
 
@@ -1345,11 +1499,14 @@ VS Code 本地设置，指定解释器和终端自动激活环境。
 
 从当前代码和已有文档来看，下一阶段最有价值的方向是：
 
-1. 用更长样本窗口验证 P11 参数区间稳定性
-2. 做 12/18 个月 walk-forward 检验
-3. 继续补充 D0 特征
-4. 把研究结果做成更清晰的专用 UI
-5. 在“参数区间发现”之后，再考虑自动化调参与模型层
+1. 把 `tushare_config.json` 也拆成 `tushare_config.example.json + tushare_config.local.json`
+2. 在 GUI 里明确显示当前 `base_dir`、当前 `output_profile`、当前是否处于 `.runtime`
+3. 把 `LEGACY_BASE_DIR` 兼容兜底改成“先告警，再回退”，减少静默误连风险
+4. 用更长样本窗口验证 P11 参数区间稳定性
+5. 做 12/18 个月 walk-forward 检验
+6. 继续补充 D0 特征
+7. 把研究结果做成更清晰的专用 UI
+8. 在“参数区间发现”之后，再考虑自动化调参与模型层
 
 ---
 

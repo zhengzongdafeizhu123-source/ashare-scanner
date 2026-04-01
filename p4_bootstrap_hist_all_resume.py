@@ -1,38 +1,18 @@
 ﻿from pathlib import Path
 from datetime import datetime
 import argparse
-import json
 import time
 
 import akshare as ak
 import pandas as pd
 
+from project_paths import BOOTSTRAP_OUTPUT_DIR, LOGS_DIR, UNIVERSE_OUTPUT_DIR, resolve_base_dir
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
-
-
-def load_app_config():
-    if not APP_CONFIG_FILE.exists():
-        return {}
-
-    try:
-        config = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return config if isinstance(config, dict) else {}
-    except Exception:
-        return {}
-
-
-def resolve_base_dir():
-    config = load_app_config()
-    return Path(config["base_dir"]) if config.get("base_dir") else DEFAULT_BASE_DIR
-
-
 BASE_DIR = resolve_base_dir()
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = BOOTSTRAP_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -86,7 +66,7 @@ def load_universe_df(universe_file_arg=""):
         if not universe_file.is_absolute():
             universe_file = PROJECT_DIR / universe_file
     else:
-        universe_file = OUTPUT_DIR / f"p3_universe_filtered_{today_str}.csv"
+        universe_file = UNIVERSE_OUTPUT_DIR / f"p3_universe_filtered_{today_str}.csv"
 
     if not universe_file.exists():
         raise FileNotFoundError(f"找不到股票池文件: {universe_file}")

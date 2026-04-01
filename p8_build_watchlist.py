@@ -2,44 +2,22 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-import json
 import os
 import sys
 
 import pandas as pd
+from project_paths import LOGS_DIR, SCAN_OUTPUT_DIR, WATCHLIST_OUTPUT_DIR, resolve_base_dir
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 TIMESTAMP_STR = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def load_app_config():
-    if not APP_CONFIG_FILE.exists():
-        return {}
-    try:
-        config = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return config if isinstance(config, dict) else {}
-    except Exception:
-        return {}
-
-
-def resolve_base_dir():
-    config = load_app_config()
-    return Path(config["base_dir"]) if config.get("base_dir") else DEFAULT_BASE_DIR
-
-
 BASE_DIR = resolve_base_dir()
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
 PACK_FILE = BASE_DIR / "data" / "packed" / "daily_hist_all.parquet"
-WATCHLIST_DIR = OUTPUT_DIR / "watchlist"
+WATCHLIST_DIR = WATCHLIST_OUTPUT_DIR
 SNAPSHOT_DIR = WATCHLIST_DIR / "snapshots"
 
 WATCHLIST_DIR.mkdir(parents=True, exist_ok=True)
@@ -122,7 +100,7 @@ def read_csv_safe(path: Path | None):
 
 
 def load_scan_frames():
-    files = {key: latest_file(OUTPUT_DIR, pattern) for key, pattern in SCAN_GLOBS.items()}
+    files = {key: latest_file(SCAN_OUTPUT_DIR, pattern) for key, pattern in SCAN_GLOBS.items()}
     frames = {key: read_csv_safe(path) for key, path in files.items()}
     return files, frames
 

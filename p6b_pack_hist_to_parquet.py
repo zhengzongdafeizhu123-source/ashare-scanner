@@ -1,35 +1,15 @@
 from pathlib import Path
 from datetime import datetime
-import json
 import os
 import sys
 import pandas as pd
+
+from project_paths import LOGS_DIR, MAINTENANCE_OUTPUT_DIR, resolve_base_dir
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
-
-
-def load_app_config():
-    if not APP_CONFIG_FILE.exists():
-        return {}
-
-    try:
-        config = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return config if isinstance(config, dict) else {}
-    except Exception:
-        return {}
-
-
-def resolve_base_dir():
-    config = load_app_config()
-    return Path(config["base_dir"]) if config.get("base_dir") else DEFAULT_BASE_DIR
-
 
 def sanitize_proxy_env():
     bad_proxy_values = {
@@ -46,8 +26,7 @@ sanitize_proxy_env()
 
 BASE_DIR = resolve_base_dir()
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = MAINTENANCE_OUTPUT_DIR
 PACK_DIR = BASE_DIR / "data" / "packed"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

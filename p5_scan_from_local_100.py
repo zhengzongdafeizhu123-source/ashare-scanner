@@ -2,10 +2,10 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
-BASE_DIR = Path(r"W:\AshareScanner")
+from project_paths import BASE_DIR, LOGS_DIR, SAMPLES_OUTPUT_DIR
+
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = SAMPLES_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

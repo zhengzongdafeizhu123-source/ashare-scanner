@@ -10,6 +10,7 @@ import shutil
 import sys
 
 import pandas as pd
+from project_paths import LOGS_DIR, RESEARCH_OUTPUT_DIR, resolve_base_dir
 
 try:
     import pyarrow as pa
@@ -24,8 +25,6 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
 SCAN_CONFIG_FILE = PROJECT_DIR / "scan_config.json"
 DEFAULT_RESEARCH_CONFIG_FILE = PROJECT_DIR / "research_config.json"
 PREVIEW_ROW_LIMIT = 200_000
@@ -89,13 +88,6 @@ def deep_merge(a: dict, b: dict) -> dict:
         else:
             result[k] = v
     return result
-
-
-def resolve_base_dir() -> Path:
-    cfg = load_json(APP_CONFIG_FILE)
-    return Path(cfg["base_dir"]) if cfg.get("base_dir") else DEFAULT_BASE_DIR
-
-
 def load_scan_config() -> dict:
     default_cfg = {
         "hard_filters": {
@@ -755,8 +747,8 @@ def coerce_output_schema(df: pd.DataFrame) -> pd.DataFrame:
 def main():
     base_dir = resolve_base_dir()
     pack_file = base_dir / "data" / "packed" / "daily_hist_all.parquet"
-    output_dir = base_dir / "output" / "research"
-    logs_dir = base_dir / "logs"
+    output_dir = RESEARCH_OUTPUT_DIR
+    logs_dir = LOGS_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 

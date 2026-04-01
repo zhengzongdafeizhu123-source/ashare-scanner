@@ -10,6 +10,7 @@ import time
 
 import pandas as pd
 import tushare as ts
+from project_paths import LOGS_DIR, RESEARCH_RAW_SYNC_OUTPUT_DIR, resolve_base_dir
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -17,8 +18,6 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
 RESEARCH_CONFIG_FILE = PROJECT_DIR / "research_config.json"
 TUSHARE_CONFIG_FILE = PROJECT_DIR / "tushare_config.json"
 TODAY_STR = datetime.now().strftime("%Y%m%d")
@@ -64,14 +63,6 @@ def load_json(path: Path) -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-
-def resolve_base_dir() -> Path:
-    cfg = load_json(APP_CONFIG_FILE)
-    return Path(cfg["base_dir"]) if cfg.get("base_dir") else DEFAULT_BASE_DIR
-
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="同步研究所需的 Tushare 原始数据（支持一次性回补 + 后续增量补齐）")
@@ -148,8 +139,8 @@ def save_parquet(df: pd.DataFrame, path: Path):
 
 def build_dirs(base_dir: Path) -> dict[str, Path]:
     root = base_dir / "data" / "research_raw"
-    output_dir = base_dir / "output" / "research_raw_sync"
-    logs_dir = base_dir / "logs"
+    output_dir = RESEARCH_RAW_SYNC_OUTPUT_DIR
+    logs_dir = LOGS_DIR
     root.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)

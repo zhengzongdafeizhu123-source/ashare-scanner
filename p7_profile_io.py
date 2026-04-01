@@ -3,10 +3,10 @@ from datetime import datetime
 import time
 import pandas as pd
 
-BASE_DIR = Path(r"W:\AshareScanner")
+from project_paths import BASE_DIR, DIAGNOSTICS_OUTPUT_DIR, LOGS_DIR
+
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = DIAGNOSTICS_OUTPUT_DIR
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)

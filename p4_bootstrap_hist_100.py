@@ -4,10 +4,10 @@ import time
 import pandas as pd
 import akshare as ak
 
-BASE_DIR = Path(r"W:\AshareScanner")
+from project_paths import BASE_DIR, BOOTSTRAP_OUTPUT_DIR, LOGS_DIR, UNIVERSE_OUTPUT_DIR
+
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = BOOTSTRAP_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -15,7 +15,7 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 today_str = datetime.now().strftime("%Y%m%d")
 
-universe_file = OUTPUT_DIR / f"p3_universe_filtered_{today_str}.csv"
+universe_file = UNIVERSE_OUTPUT_DIR / f"p3_universe_filtered_{today_str}.csv"
 success_file = OUTPUT_DIR / f"p4_bootstrap_hist_100_success_{today_str}.csv"
 error_file = OUTPUT_DIR / f"p4_bootstrap_hist_100_errors_{today_str}.csv"
 log_file = LOGS_DIR / f"p4_bootstrap_hist_100_{today_str}.log"
