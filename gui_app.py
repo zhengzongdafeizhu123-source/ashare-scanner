@@ -331,6 +331,16 @@ class LogWindow(tk.Toplevel):
 
 
 class WatchlistWindow(tk.Toplevel):
+    EDITABLE_TEXT_COLUMNS = [
+        "review_note",
+        "updated_at",
+        "status",
+        "next_stage",
+        "d1_action",
+        "d2_action",
+        "final_result_tag",
+    ]
+
     TABLE_COLUMNS = [
         ("自选", "is_favorite", 58),
         ("入池日期", "setup_date", 90),
@@ -497,6 +507,8 @@ class WatchlistWindow(tk.Toplevel):
             return
 
         self.master_df["股票代码"] = self.master_df["股票代码"].astype(str).str.zfill(6)
+        for col in self.EDITABLE_TEXT_COLUMNS:
+            self._ensure_text_column(col)
         self.master_df["source_bucket_cn"] = self.master_df.get("source_bucket", "").map(WATCHLIST_SOURCE_LABELS).fillna(self.master_df.get("source_bucket", ""))
         self.master_df["is_favorite"] = self.master_df.get("watch_id", pd.Series(dtype=str)).astype(str).isin(self.favorite_ids).map(lambda x: "★" if x else "")
         self.master_df["_fav_sort"] = self.master_df["is_favorite"].eq("★").astype(int)
@@ -570,12 +582,22 @@ class WatchlistWindow(tk.Toplevel):
             return self.view_df.iloc[idx]
         return hit.iloc[0]
 
+    def _ensure_text_column(self, column: str):
+        if column not in self.master_df.columns:
+            self.master_df[column] = ""
+            return
+        if not (pd.api.types.is_object_dtype(self.master_df[column]) or pd.api.types.is_string_dtype(self.master_df[column])):
+            self.master_df[column] = self.master_df[column].astype("string")
+        self.master_df[column] = self.master_df[column].fillna("")
+
     def _update_master_row_value(self, watch_id: str, column: str, value: str):
         if self.master_df.empty or "watch_id" not in self.master_df.columns:
             return False
         mask = self.master_df["watch_id"].astype(str) == str(watch_id)
         if not mask.any():
             return False
+        self._ensure_text_column(column)
+        self._ensure_text_column("updated_at")
         self.master_df.loc[mask, column] = value
         self.master_df.loc[mask, "updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         _, gui_runner = _ensure_runtime_modules()

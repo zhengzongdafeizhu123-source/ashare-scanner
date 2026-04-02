@@ -9,16 +9,13 @@ import time
 
 import pandas as pd
 from project_paths import BOOTSTRAP_OUTPUT_DIR, LOGS_DIR, UNIVERSE_OUTPUT_DIR, resolve_base_dir
+from tushare_token import load_tushare_token
 
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-
-PROJECT_DIR = Path(__file__).resolve().parent
-TUSHARE_CONFIG_FILE = PROJECT_DIR / "tushare_config.json"
 
 
 def sanitize_proxy_env():
@@ -30,27 +27,6 @@ def sanitize_proxy_env():
         value = os.environ.get(key, "").strip().lower()
         if value in bad_proxy_values:
             os.environ.pop(key, None)
-
-
-def load_tushare_token():
-    token = os.environ.get("TUSHARE_TOKEN", "").strip()
-    if token:
-        return token
-
-    if TUSHARE_CONFIG_FILE.exists():
-        try:
-            config = json.loads(TUSHARE_CONFIG_FILE.read_text(encoding="utf-8"))
-            token = str(config.get("token", "")).strip()
-            if token:
-                return token
-        except Exception:
-            pass
-
-    raise RuntimeError(
-        "未找到 Tushare Token。请设置环境变量 TUSHARE_TOKEN，"
-        "或在项目根目录创建 tushare_config.json：{\"token\": \"你的token\"}"
-    )
-
 
 def init_tushare_pro():
     try:

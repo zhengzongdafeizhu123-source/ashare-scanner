@@ -54,7 +54,9 @@ SCAN_COLUMNS = [
     "命中硬过滤数",
     "硬过滤是否通过",
     "硬过滤未通过原因",
+    "硬过滤结果说明",
     "分层标签",
+    "分层标签说明",
 ]
 PARQUET_COLUMNS = ["股票代码", "股票名称", "日期", "开盘", "收盘", "最高", "最低"]
 PRIORITY = {"selected": 3, "candidate": 2, "watch": 1}
@@ -224,10 +226,22 @@ def build_watchlist_records(pool_df: pd.DataFrame, price_df: pd.DataFrame) -> pd
     }
     out = out.rename(columns=rename_map)
     out["source_bucket_cn"] = out["source_bucket"].map(SOURCE_BUCKET_CN).fillna(out["source_bucket"])
-    out["d0_failed_reason"] = out.get("d0_failed_reason", "").fillna("")
-    out["d0_hard_pass"] = out.get("d0_hard_pass", "").fillna("")
-    out["硬过滤结果说明"] = out.get("硬过滤结果说明", "").fillna("")
-    out["分层标签说明"] = out.get("分层标签说明", "").fillna("")
+    if "d0_failed_reason" not in out.columns:
+        out["d0_failed_reason"] = ""
+    else:
+        out["d0_failed_reason"] = out["d0_failed_reason"].fillna("")
+    if "d0_hard_pass" not in out.columns:
+        out["d0_hard_pass"] = ""
+    else:
+        out["d0_hard_pass"] = out["d0_hard_pass"].fillna("")
+    if "硬过滤结果说明" not in out.columns:
+        out["硬过滤结果说明"] = ""
+    else:
+        out["硬过滤结果说明"] = out["硬过滤结果说明"].fillna("")
+    if "分层标签说明" not in out.columns:
+        out["分层标签说明"] = ""
+    else:
+        out["分层标签说明"] = out["分层标签说明"].fillna("")
     out["entry_reason"] = out.apply(
         lambda r: build_entry_reason(str(r.get("source_bucket", "")), str(r.get("d0_label", "")), str(r.get("d0_hard_pass", "")), str(r.get("d0_failed_reason", ""))),
         axis=1,

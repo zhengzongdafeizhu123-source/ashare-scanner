@@ -11,6 +11,7 @@ import time
 import pandas as pd
 import tushare as ts
 from project_paths import LOGS_DIR, RESEARCH_RAW_SYNC_OUTPUT_DIR, resolve_base_dir
+from tushare_token import load_tushare_token
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -19,7 +20,6 @@ if hasattr(sys.stderr, "reconfigure"):
 
 PROJECT_DIR = Path(__file__).resolve().parent
 RESEARCH_CONFIG_FILE = PROJECT_DIR / "research_config.json"
-TUSHARE_CONFIG_FILE = PROJECT_DIR / "tushare_config.json"
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 
 
@@ -71,17 +71,6 @@ def parse_args():
     parser.add_argument("--datasets", default="daily_basic,adj_factor,stk_limit,moneyflow,trade_cal,stock_basic", help="逗号分隔的数据集列表")
     parser.add_argument("--force", action="store_true", help="忽略已有缓存，强制全量重拉指定区间")
     return parser.parse_args()
-
-
-
-def get_token() -> str:
-    token = os.environ.get("TUSHARE_TOKEN", "").strip()
-    if token:
-        return token
-    cfg = load_json(TUSHARE_CONFIG_FILE)
-    return str(cfg.get("token", "")).strip()
-
-
 
 def fetch_with_retry(label: str, fetch_func, max_retries: int = 4, base_wait: int = 3):
     last_error = None
@@ -286,9 +275,9 @@ def sync_trade_date_dataset(pro, root_dir: Path, dataset_name: str, trade_dates:
 
 def main():
     args = parse_args()
-    token = get_token()
+    token = load_tushare_token()
     if not token:
-        raise RuntimeError("未找到 TUSHARE_TOKEN。请设置环境变量 TUSHARE_TOKEN，或在项目根目录提供 tushare_config.json")
+        raise RuntimeError("未找到 TUSHARE_TOKEN。请设置环境变量 TUSHARE_TOKEN，或在项目根目录提供 tushare_config.local.json")
 
     ts.set_token(token)
     pro = ts.pro_api(token)
