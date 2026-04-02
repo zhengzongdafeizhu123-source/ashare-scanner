@@ -17,6 +17,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 .runtime/
+app_config.local.json
 data/
 output/
 logs/

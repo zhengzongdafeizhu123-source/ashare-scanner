@@ -2,17 +2,27 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-import json
 import os
 import subprocess
 import sys
 
 import pandas as pd
 
+from project_paths import (
+    BASE_DIR,
+    BOOTSTRAP_OUTPUT_DIR,
+    DAILY_HIST_DIR,
+    LOGS_DIR,
+    MAINTENANCE_OUTPUT_DIR,
+    OUTPUT_ROOT,
+    SCAN_OUTPUT_DIR,
+    UNIVERSE_OUTPUT_DIR,
+    WATCHLIST_OUTPUT_DIR,
+    ensure_dir,
+)
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 PYTHON_EXE = sys.executable
 PIPELINE_STEPS = [
@@ -53,31 +63,11 @@ UPDATE_OUTPUT_CANDIDATES = [
     },
 ]
 
-def _load_app_config():
-    if not APP_CONFIG_FILE.exists():
-        return {}
-
-    try:
-        config = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return config if isinstance(config, dict) else {}
-    except Exception:
-        return {}
-
-
-
-def _resolve_base_dir():
-    config = _load_app_config()
-    return Path(config["base_dir"]) if config.get("base_dir") else DEFAULT_BASE_DIR
-
-
-BASE_DIR = _resolve_base_dir()
-DATA_DIR = BASE_DIR / "data" / "daily_hist"
+DATA_DIR = DAILY_HIST_DIR
 PACK_DIR = BASE_DIR / "data" / "packed"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = OUTPUT_ROOT
 
-
-WATCHLIST_DIR = OUTPUT_DIR / "watchlist"
+WATCHLIST_DIR = WATCHLIST_OUTPUT_DIR
 WATCHLIST_SNAPSHOT_DIR = WATCHLIST_DIR / "snapshots"
 WATCHLIST_REVIEW_DIR = WATCHLIST_DIR / "reviews"
 WATCHLIST_OUTPUT_GLOBS = {
@@ -229,7 +219,7 @@ def _run_script(step_name, script_name, args=None, output_patterns=None, log_cal
 
 
 def _latest_universe_file():
-    files = sorted(OUTPUT_DIR.glob("p3_universe_filtered_*.csv"))
+    files = sorted(UNIVERSE_OUTPUT_DIR.glob("p3_universe_filtered_*.csv"))
     if not files:
         return None
     return files[-1]
@@ -245,8 +235,8 @@ def _load_universe_df(universe_file):
 
 
 def _write_missing_stock_list(missing_codes):
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    list_file = OUTPUT_DIR / f"gui_missing_stocks_{TODAY_STR}.csv"
+    ensure_dir(BOOTSTRAP_OUTPUT_DIR)
+    list_file = BOOTSTRAP_OUTPUT_DIR / f"gui_missing_stocks_{TODAY_STR}.csv"
     pd.DataFrame({"code": missing_codes}).to_csv(list_file, index=False, encoding="utf-8-sig")
     return list_file
 
@@ -315,7 +305,7 @@ def get_database_sync_info():
     for item in UPDATE_OUTPUT_CANDIDATES:
         summary_glob = item.get("summary_glob", "")
         if summary_glob:
-            summary_candidates.extend(OUTPUT_DIR.glob(summary_glob))
+            summary_candidates.extend(MAINTENANCE_OUTPUT_DIR.glob(summary_glob))
     summary_file = _latest_matching_file_by_mtime(summary_candidates)
 
     if summary_file is None:
@@ -379,7 +369,7 @@ def save_watchlist_master(df: pd.DataFrame):
 
 def get_latest_scan_output_files():
     files = {
-        key: _latest_matching_file(LOGS_DIR if key == "log" else OUTPUT_DIR, pattern)
+        key: _latest_matching_file(LOGS_DIR if key == "log" else SCAN_OUTPUT_DIR, pattern)
         for key, pattern in SCAN_OUTPUT_GLOBS.items()
     }
     return {
@@ -430,9 +420,9 @@ def load_latest_scan_frames():
 
 def sync_universe(log_callback=None, event_callback=None):
     output_patterns = [
-        str(OUTPUT_DIR / f"p3_universe_raw_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p3_universe_filtered_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p3_universe_summary_{TODAY_STR}.csv"),
+        str(UNIVERSE_OUTPUT_DIR / f"p3_universe_raw_{TODAY_STR}.csv"),
+        str(UNIVERSE_OUTPUT_DIR / f"p3_universe_filtered_{TODAY_STR}.csv"),
+        str(UNIVERSE_OUTPUT_DIR / f"p3_universe_summary_{TODAY_STR}.csv"),
         str(LOGS_DIR / f"p3_build_universe_{TODAY_STR}.log"),
     ]
     return _run_script(
@@ -528,9 +518,9 @@ def bootstrap_missing_stocks(missing_codes=None, log_callback=None, event_callba
     stock_list_file = _write_missing_stock_list(missing_codes)
     output_patterns = [
         str(stock_list_file),
-        str(OUTPUT_DIR / f"p4_bootstrap_all_success_{TODAY_STR}_list_*.csv"),
-        str(OUTPUT_DIR / f"p4_bootstrap_all_errors_{TODAY_STR}_list_*.csv"),
-        str(OUTPUT_DIR / f"p4_bootstrap_all_skipped_{TODAY_STR}_list_*.csv"),
+        str(BOOTSTRAP_OUTPUT_DIR / f"p4_bootstrap_all_success_{TODAY_STR}_list_*.csv"),
+        str(BOOTSTRAP_OUTPUT_DIR / f"p4_bootstrap_all_errors_{TODAY_STR}_list_*.csv"),
+        str(BOOTSTRAP_OUTPUT_DIR / f"p4_bootstrap_all_skipped_{TODAY_STR}_list_*.csv"),
         str(LOGS_DIR / f"p4_bootstrap_all_{TODAY_STR}_list_*.log"),
     ]
 
@@ -563,11 +553,11 @@ def update_daily_hist(log_callback=None, event_callback=None):
     script_info = _get_update_script_info()
     output_patterns = []
     if script_info.get("summary_glob"):
-        output_patterns.append(str(OUTPUT_DIR / script_info["summary_glob"].replace("*", TODAY_STR)))
+        output_patterns.append(str(MAINTENANCE_OUTPUT_DIR / script_info["summary_glob"].replace("*", TODAY_STR)))
     output_patterns.extend([
-        str(OUTPUT_DIR / script_info["success_glob"].replace("*", TODAY_STR)),
-        str(OUTPUT_DIR / script_info["errors_glob"].replace("*", TODAY_STR)),
-        str(OUTPUT_DIR / script_info["skipped_glob"].replace("*", TODAY_STR)),
+        str(MAINTENANCE_OUTPUT_DIR / script_info["success_glob"].replace("*", TODAY_STR)),
+        str(MAINTENANCE_OUTPUT_DIR / script_info["errors_glob"].replace("*", TODAY_STR)),
+        str(MAINTENANCE_OUTPUT_DIR / script_info["skipped_glob"].replace("*", TODAY_STR)),
         str(LOGS_DIR / script_info["log_glob"].replace("*", TODAY_STR)),
     ])
     return _run_script(
@@ -583,8 +573,8 @@ def update_daily_hist(log_callback=None, event_callback=None):
 def pack_to_parquet(log_callback=None, event_callback=None):
     output_patterns = [
         str(PACK_DIR / "daily_hist_all.parquet"),
-        str(OUTPUT_DIR / f"p6b_pack_hist_summary_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p6b_pack_hist_errors_{TODAY_STR}.csv"),
+        str(MAINTENANCE_OUTPUT_DIR / f"p6b_pack_hist_summary_{TODAY_STR}.csv"),
+        str(MAINTENANCE_OUTPUT_DIR / f"p6b_pack_hist_errors_{TODAY_STR}.csv"),
         str(LOGS_DIR / f"p6b_pack_hist_{TODAY_STR}.log"),
     ]
     return _run_script(
@@ -599,13 +589,13 @@ def pack_to_parquet(log_callback=None, event_callback=None):
 
 def scan_from_parquet(log_callback=None, event_callback=None):
     output_patterns = [
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_results_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_selected_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_candidate_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_watch_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_errors_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_skipped_{TODAY_STR}.csv"),
-        str(OUTPUT_DIR / f"p7_scan_from_parquet_all_summary_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_results_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_selected_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_candidate_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_watch_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_errors_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_skipped_{TODAY_STR}.csv"),
+        str(SCAN_OUTPUT_DIR / f"p7_scan_from_parquet_all_summary_{TODAY_STR}.csv"),
         str(LOGS_DIR / f"p7_scan_from_parquet_all_{TODAY_STR}.log"),
     ]
     return _run_script(

@@ -5,6 +5,11 @@
 ### Added
 - 补充最新版项目总文档，统一沉淀为主 README：
   - `README.md`
+- 新增路径治理与协作配置相关文件：
+  - `project_paths.py`
+  - `app_config.example.json`
+  - `switch_output_profile.py`
+  - `README_ZYB_SOP.md`
 
 ### Changed
 - 修复 `p9_build_research_dataset.py` 在分批写入 parquet 时的 schema 不一致问题，统一 `list_age_days`、`d0_hit_count`、`d1_stable_score` 等批次字段类型，避免 `ValueError: Table schema does not match schema used to create file`。
@@ -15,6 +20,23 @@
   - 生产线与研究线输入输出
   - 主要配置文件参数解释
 - 清理已被主文档覆盖的旧说明文件，减少项目根目录噪音。
+- 将路径解析收口到 `project_paths.py`，统一 `base_dir`、`output_profile`、输出目录分层和运行时优先级。
+- `app_config.json` 改为可安全提交的公共默认配置，当前默认指向 `.runtime`，不再携带个人正式路径。
+- 引入 `app_config.local.json` 作为本地真实配置入口，并通过 `.gitignore` 忽略，避免多人协作时互相覆盖本地路径。
+- `switch_output_profile.py` 改为只写本地配置，不再修改公共 `app_config.json`。
+- 以下入口脚本改为通过统一模块获取 `base_dir`，不再各自保留个人化硬编码路径：
+  - `p3_build_universe.py`
+  - `p4_bootstrap_hist_all_resume.py`
+  - `p4_bootstrap_hist_all_tushare.py`
+  - `p6_update_daily_hist.py`
+  - `p6_update_daily_hist_tushare.py`
+  - `p6b_pack_hist_to_parquet.py`
+  - `p7_scan_from_parquet_all.py`
+  - `p8_build_watchlist.py`
+  - `p8_sync_research_raw_tushare.py`
+  - `p9_build_research_dataset.py`
+- `activate_a_share.bat` 与 `test_env.py` 去个人化，减少对固定机器路径的依赖。
+- 输出目录进一步规范为按职责分层写入 `output/<profile>/universe|bootstrap|maintenance|scan|watchlist|research|research_raw_sync|samples`。
 
 ### Removed
 - 删除以下已被主 README 吸收的历史文档：
@@ -32,6 +54,9 @@
 ### Notes
 - 这一版主要是“稳定性修复 + 文档收敛”版本，功能口径未变。
 - 经过这轮整理后，项目根目录的主要入口文档只保留 `README.md` 和 `CHANGELOG.md`。
+- 接手判断：这次整理前的仓库状态更接近“部分统一，部分混用”的 B 类状态；主流程已围绕 `app_config.json -> base_dir` 运作，但多处脚本仍残留重复配置解析与 `W:\AshareScanner` 这类个人化兜底。
+- 本轮采取“最小侵入、兼容现有流程”的路径收口方式：保留 `.runtime` 测试沙箱接入方式，也暂时保留 `W:\AshareScanner` 作为低优先级旧行为兼容兜底。
+- 尚未彻底消除的风险包括：`LEGACY_BASE_DIR` 静默回退风险、`tushare_config.json` 尚未本地化、并非所有配置都支持 local override、`.runtime` 与 `output_profile` 容易被混淆，以及文档中仍保留部分机器路径示例。
 
 ## 2026-03-31 Version 3
 

@@ -4,6 +4,8 @@ import time
 import pandas as pd
 import akshare as ak
 
+from project_paths import BASE_DIR, LOGS_DIR, SAMPLES_OUTPUT_DIR
+
 # 固定 50 只样本股，先验证扩样本后的稳定性
 SAMPLE_STOCKS = [
     ("000001", "平安银行"),
@@ -58,9 +60,8 @@ SAMPLE_STOCKS = [
     ("688981", "中芯国际"),
 ]
 
-DATA_DIR = Path(r"W:\AshareScanner\data")
-OUTPUT_DIR = Path(r"W:\AshareScanner\output")
-LOGS_DIR = Path(r"W:\AshareScanner\logs")
+DATA_DIR = BASE_DIR / "data" / "samples"
+OUTPUT_DIR = SAMPLES_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

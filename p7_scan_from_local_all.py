@@ -3,10 +3,10 @@ from datetime import datetime
 import json
 import pandas as pd
 
-BASE_DIR = Path(r"W:\AshareScanner")
+from project_paths import BASE_DIR, LOGS_DIR, SCAN_OUTPUT_DIR
+
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = SCAN_OUTPUT_DIR
 CONFIG_FILE = Path(__file__).with_name("scan_config.json")
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

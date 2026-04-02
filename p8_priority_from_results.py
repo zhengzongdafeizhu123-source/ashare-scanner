@@ -2,9 +2,9 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
-BASE_DIR = Path(r"W:\AshareScanner")
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+from project_paths import LOGS_DIR, SAMPLES_OUTPUT_DIR, SCAN_OUTPUT_DIR
+
+OUTPUT_DIR = SAMPLES_OUTPUT_DIR
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -12,12 +12,12 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 today_str = datetime.now().strftime("%Y%m%d")
 
 # 优先使用今天的 all_results；没有就取最新一个
-today_result_file = OUTPUT_DIR / f"p7_scan_from_local_all_results_{today_str}.csv"
+today_result_file = SCAN_OUTPUT_DIR / f"p7_scan_from_local_all_results_{today_str}.csv"
 
 if today_result_file.exists():
     source_file = today_result_file
 else:
-    candidates = sorted(OUTPUT_DIR.glob("p7_scan_from_local_all_results_*.csv"))
+    candidates = sorted(SCAN_OUTPUT_DIR.glob("p7_scan_from_local_all_results_*.csv"))
     if not candidates:
         raise FileNotFoundError("未找到任何 p7_scan_from_local_all_results_*.csv 文件")
     source_file = candidates[-1]

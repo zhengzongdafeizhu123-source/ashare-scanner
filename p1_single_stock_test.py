@@ -3,14 +3,15 @@ from datetime import datetime
 import pandas as pd
 import akshare as ak
 
+from project_paths import BASE_DIR, LOGS_DIR, SAMPLES_OUTPUT_DIR
+
 # 固定测试标的：平安银行
 SYMBOL = "000001"
 NAME = "平安银行"
 
 # 固定目录
-DATA_DIR = Path(r"W:\AshareScanner\data")
-OUTPUT_DIR = Path(r"W:\AshareScanner\output")
-LOGS_DIR = Path(r"W:\AshareScanner\logs")
+DATA_DIR = BASE_DIR / "data" / "samples"
+OUTPUT_DIR = SAMPLES_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

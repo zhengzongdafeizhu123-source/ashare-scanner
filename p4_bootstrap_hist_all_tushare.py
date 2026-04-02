@@ -3,12 +3,12 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
 import os
 import sys
 import time
 
 import pandas as pd
+from project_paths import BOOTSTRAP_OUTPUT_DIR, LOGS_DIR, UNIVERSE_OUTPUT_DIR, resolve_base_dir
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -18,25 +18,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_BASE_DIR = Path(r"W:\AshareScanner")
-APP_CONFIG_FILE = PROJECT_DIR / "app_config.json"
 TUSHARE_CONFIG_FILE = PROJECT_DIR / "tushare_config.json"
-
-
-def load_app_config():
-    if not APP_CONFIG_FILE.exists():
-        return {}
-
-    try:
-        config = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return config if isinstance(config, dict) else {}
-    except Exception:
-        return {}
-
-
-def resolve_base_dir():
-    config = load_app_config()
-    return Path(config["base_dir"]) if config.get("base_dir") else DEFAULT_BASE_DIR
 
 
 def sanitize_proxy_env():
@@ -85,8 +67,7 @@ sanitize_proxy_env()
 
 BASE_DIR = resolve_base_dir()
 DATA_DIR = BASE_DIR / "data" / "daily_hist"
-OUTPUT_DIR = BASE_DIR / "output"
-LOGS_DIR = BASE_DIR / "logs"
+OUTPUT_DIR = BOOTSTRAP_OUTPUT_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -106,7 +87,7 @@ skip_rows = []
 
 
 def latest_universe_file():
-    files = sorted(OUTPUT_DIR.glob("p3_universe_filtered_*.csv"))
+    files = sorted(UNIVERSE_OUTPUT_DIR.glob("p3_universe_filtered_*.csv"))
     return files[-1] if files else None
 
 
