@@ -885,8 +885,14 @@ D0 最小换手率。
 - 它是敏感文件
 - README 只说明用途，不应展示真实 token
 - 也可以使用环境变量 `TUSHARE_TOKEN`
-- 当前它还没有拆成 `tushare_config.example.json + tushare_config.local.json`
-- 这意味着多人协作时，仍然可能出现 token 被互相覆盖，或敏感配置被误提交到远端的风险
+- 当前推荐做法是：
+  - `tushare_config.example.json`：公共模板
+  - `tushare_config.local.json`：本地真实 token，不提交到 Git
+- 运行时优先级是：
+  - 环境变量 `TUSHARE_TOKEN`
+  - `tushare_config.local.json`
+  - `tushare_config.json`
+  - `tushare_config.example.json`
 
 ---
 

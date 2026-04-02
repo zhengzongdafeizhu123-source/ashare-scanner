@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-04-02 Version 4.1
+
+### Added
+- 新增本地私有 Tushare token 读取模块：
+  - `tushare_token.py`
+- 新增 Tushare 配置模板：
+  - `tushare_config.example.json`
+
+### Changed
+- Tushare token 读取逻辑统一为优先读取：
+  - 环境变量 `TUSHARE_TOKEN`
+  - `tushare_config.local.json`
+  - `tushare_config.json`
+  - `tushare_config.example.json`
+- `p4_bootstrap_hist_all_tushare.py`、`p6_update_daily_hist_tushare.py`、`p8_sync_research_raw_tushare.py` 改为通过统一模块读取 token，避免各脚本重复实现。
+- `.gitignore` 新增 `tushare_config.local.json`，避免本地真实 token 被误提交。
+- `README.md` 与 `README_ZYB_SOP.md` 同步更新为本地 token 配置方案，并补充机器示例路径说明与重点改动提示。
+
+### Fixed
+- 修复 `p6_update_daily_hist_tushare.py` 与 `p4_bootstrap_hist_all_tushare.py` 读取 `tushare_config.json` 时缺少 `import json`、导致误报“未找到 Tushare Token”的问题。
+- 修复 `gui_app.py` 中 Watchlist 复盘备注保存时，`review_note` 列被推断为 `float64` 后无法写入中文文本的问题。
+- 修复 `p8_build_watchlist.py` 的 `build_watchlist_records()`：
+  - 对 `d0_failed_reason`
+  - `d0_hard_pass`
+  - `硬过滤结果说明`
+  - `分层标签说明`
+  在列缺失时改为安全初始化，避免 `AttributeError: 'str' object has no attribute 'fillna'`
+- 为 `p8_build_watchlist.py` 的 `SCAN_COLUMNS` 补充：
+  - `硬过滤结果说明`
+  - `分层标签说明`
+  避免描述列在合并流程中被提前丢弃。
+
+### Notes
+- 仓库中的 `tushare_config.json` 已改为占位模板；真实 token 应仅保存在环境变量或本地 `tushare_config.local.json`。
+- 本轮 Watchlist 生成问题已从代码层面修复；若仍无法产出文件，剩余风险更可能来自目标输出目录的 Windows/OneDrive 写入权限。
+
 ## 2026-04-01 Version 4
 
 ### Added

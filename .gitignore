@@ -18,6 +18,7 @@ __pycache__/
 *.pyc
 .runtime/
 app_config.local.json
+tushare_config.local.json
 data/
 output/
 logs/

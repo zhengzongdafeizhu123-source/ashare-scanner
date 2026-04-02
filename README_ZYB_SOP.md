@@ -214,7 +214,7 @@ python gui_app.py
 
 ### 6.4 检查 Tushare token
 
-打开 [tushare_config.json](/w:/AshareScanner/project/tushare_config.json)，确认 token 可用。
+优先检查环境变量 `TUSHARE_TOKEN`，或者本地的 `tushare_config.local.json`，确认 token 可用。
 
 因为这些脚本都依赖它：
 
@@ -224,7 +224,8 @@ python gui_app.py
 
 注意：
 
-- `tushare_config.json` 目前还不是 `.local.json` 机制
+- 真实 token 应放在 `tushare_config.local.json`
+- `tushare_config.example.json` 和公共 `tushare_config.json` 只应该保留模板
 - 不要把真实 token 提交到远端
 
 ---
