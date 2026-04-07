@@ -1715,6 +1715,130 @@ class GuiApp:
         except Exception as exc:
             messagebox.showerror("打开目录失败", str(exc))
 
+# --- official D0 result view overrides ---
+
+OFFICIAL_RESULT_SORT_KEY = "正式D0默认排序"
+RESULT_DISPLAY_COLUMNS = [
+    "股票代码",
+    "股票名称",
+    "日期",
+    "涨跌幅%",
+    "换手率",
+    "量比前一日",
+    "VR5",
+    "BR20",
+    "official_d0_tier",
+    "official_d0_score",
+    "official_d0_flag",
+    "命中硬过滤数",
+    "分层标签",
+    "硬过滤是否通过",
+]
+COLUMN_WIDTHS = dict(
+    COLUMN_WIDTHS,
+    official_d0_tier=90,
+    official_d0_score=94,
+    official_d0_flag=96,
+)
+SORTABLE_COLUMNS = [
+    OFFICIAL_RESULT_SORT_KEY,
+    "股票代码",
+    "股票名称",
+    "日期",
+    "涨跌幅%",
+    "换手率",
+    "量比前一日",
+    "VR5",
+    "BR20",
+    "official_d0_tier",
+    "official_d0_score",
+    "official_d0_flag",
+    "命中硬过滤数",
+    "分层标签",
+]
+DEFAULT_ASCENDING_COLUMNS = set(DEFAULT_ASCENDING_COLUMNS) | {"official_d0_tier"}
+
+_ORIGINAL_GUIAPP_INIT = GuiApp.__init__
+
+
+def _sort_official_result_dataframe(self, df):
+    pd_mod, _ = _ensure_runtime_modules()
+    if df.empty:
+        return df
+    required_cols = {"official_d0_flag", "official_d0_tier", "official_d0_score"}
+    if not required_cols.issubset(df.columns):
+        return self._sort_dataframe(df, "VR5", False) if "VR5" in df.columns else df
+    sort_df = df.copy()
+    sort_df["__official_flag"] = sort_df["official_d0_flag"].astype(str).eq("是").astype(int)
+    sort_df["__official_tier"] = sort_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
+    sort_df["__official_score"] = pd_mod.to_numeric(sort_df["official_d0_score"], errors="coerce").fillna(-1)
+    sort_df["__br20"] = pd_mod.to_numeric(sort_df.get("BR20"), errors="coerce").fillna(-1)
+    sort_df["__turnover"] = pd_mod.to_numeric(sort_df.get("换手率"), errors="coerce").fillna(-1)
+    sort_df["__turnover_f"] = pd_mod.to_numeric(sort_df.get("d0_turnover_f"), errors="coerce").fillna(-1)
+    secondary = "股票代码" if "股票代码" in sort_df.columns else sort_df.columns[0]
+    sort_df = sort_df.sort_values(
+        by=["__official_flag", "__official_tier", "__official_score", "__br20", "__turnover", "__turnover_f", secondary],
+        ascending=[False, True, False, False, False, False, True],
+        na_position="last",
+    )
+    return sort_df.drop(columns=["__official_flag", "__official_tier", "__official_score", "__br20", "__turnover", "__turnover_f"])
+
+
+def _patched_get_filtered_result_frame(self, tab_key: str):
+    pd_mod, _ = _ensure_runtime_modules()
+    df = self.result_frames_raw.get(tab_key, pd_mod.DataFrame()).copy()
+    if df.empty:
+        return df
+    keyword = self.result_ui_vars["keyword"].get().strip().lower()
+    if keyword:
+        masks = []
+        for col in ["股票代码", "股票名称", "硬过滤未通过原因", "official_d0_hit_rules", "official_d0_miss_rules"]:
+            if col in df.columns:
+                masks.append(df[col].astype(str).str.lower().str.contains(keyword, na=False))
+        if masks:
+            mask = masks[0]
+            for extra in masks[1:]:
+                mask = mask | extra
+            df = df[mask].copy()
+    label_filter = self.result_ui_vars["label_filter"].get()
+    if label_filter != "全部" and "分层标签" in df.columns:
+        df = df[df["分层标签"] == label_filter].copy()
+    hard_filter = self.result_ui_vars["hard_filter"].get()
+    if hard_filter == "仅硬过滤通过" and "硬过滤是否通过" in df.columns:
+        df = df[df["硬过滤是否通过"] == "是"].copy()
+    elif hard_filter == "仅硬过滤未通过" and "硬过滤是否通过" in df.columns:
+        df = df[df["硬过滤是否通过"] != "是"].copy()
+    if self.result_sort_column == OFFICIAL_RESULT_SORT_KEY:
+        return _sort_official_result_dataframe(self, df)
+    if self.result_sort_column in df.columns:
+        return self._sort_dataframe(df, self.result_sort_column, self.result_sort_ascending)
+    return df
+
+
+def _patched_reset_result_filters(self):
+    self.result_ui_vars["keyword"].set("")
+    self.result_ui_vars["label_filter"].set("全部")
+    self.result_ui_vars["hard_filter"].set("全部")
+    self.result_sort_column = OFFICIAL_RESULT_SORT_KEY
+    self.result_sort_ascending = False
+    self.result_ui_vars["sort_by"].set(self.result_sort_column)
+    self.result_ui_vars["sort_order"].set("降序")
+    self.apply_result_filters()
+
+
+def _patched_guiapp_init(self, root):
+    _ORIGINAL_GUIAPP_INIT(self, root)
+    self.result_sort_column = OFFICIAL_RESULT_SORT_KEY
+    self.result_sort_ascending = False
+    if hasattr(self, "result_ui_vars"):
+        self.result_ui_vars["sort_by"].set(self.result_sort_column)
+        self.result_ui_vars["sort_order"].set("降序")
+
+
+GuiApp.__init__ = _patched_guiapp_init
+GuiApp._get_filtered_result_frame = _patched_get_filtered_result_frame
+GuiApp.reset_result_filters = _patched_reset_result_filters
+
 
 def main():
     root = tk.Tk()

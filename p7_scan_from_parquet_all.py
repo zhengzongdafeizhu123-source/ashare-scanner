@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import json
 import os
 import sys
 import pandas as pd
@@ -53,6 +54,19 @@ DEFAULT_CONFIG = {
         "candidate": {"vr5_min": 1.8, "clv_min": 0.3, "br20_min": 0.98},
         "watch": {"vr5_min": 1.2, "clv_min": 0.0, "br20_min": 0.95},
     },
+    "official_d0_logic_v2": {
+        "enabled": True,
+        "min_score": 3,
+        "thresholds": {
+            "br20_min": 1.02,
+            "limit_up_space_min": 0.0,
+            "limit_up_space_max": 5.60,
+            "turnover_min": 9.67,
+            "turnover_f_min": 15.126,
+            "range_vol_min": 0.666,
+            "range_vol_max": 1.05,
+        },
+    },
 }
 
 
@@ -88,6 +102,137 @@ def load_config():
         return DEFAULT_CONFIG
 
 
+def read_parquet_subset(path, columns=None, filters=None):
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        kwargs = {}
+        if columns is not None:
+            kwargs["columns"] = columns
+        if filters:
+            kwargs["filters"] = filters
+        return pd.read_parquet(path, **kwargs)
+    except TypeError:
+        try:
+            df = pd.read_parquet(path, columns=columns)
+        except Exception:
+            return pd.DataFrame()
+        if not filters or df.empty:
+            return df
+        for col, op, value in filters:
+            if col not in df.columns:
+                continue
+            if op == "in":
+                df = df[df[col].isin(value)]
+            elif op == ">=":
+                df = df[df[col] >= value]
+            elif op == "<=":
+                df = df[df[col] <= value]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def build_research_raw_maps(latest_points):
+    if latest_points.empty:
+        return {"daily_basic": {}, "stk_limit": {}}
+
+    root = BASE_DIR / "data" / "research_raw"
+    daily_basic_file = root / "daily_basic" / "daily_basic.parquet"
+    stk_limit_file = root / "stk_limit" / "stk_limit.parquet"
+    symbols = sorted(latest_points["股票代码"].astype(str).str.zfill(6).unique().tolist())
+    trade_dates = sorted(latest_points["trade_date"].astype(str).unique().tolist())
+    filters = [("ts_code", "in", [f"{symbol}.SZ" for symbol in symbols] + [f"{symbol}.SH" for symbol in symbols] + [f"{symbol}.BJ" for symbol in symbols])]
+    if trade_dates:
+        filters.append(("trade_date", "in", trade_dates))
+
+    def _build_map(df):
+        if df.empty or "ts_code" not in df.columns or "trade_date" not in df.columns:
+            return {}
+        work = df.copy()
+        work["股票代码"] = work["ts_code"].astype(str).str.split(".").str[0].str.zfill(6)
+        work["trade_date"] = work["trade_date"].astype(str)
+        rows = {}
+        for _, row in work.iterrows():
+            rows[(str(row["股票代码"]).zfill(6), str(row["trade_date"]))] = row.to_dict()
+        return rows
+
+    daily_basic_df = read_parquet_subset(
+        daily_basic_file,
+        columns=["ts_code", "trade_date", "turnover_rate_f"],
+        filters=filters,
+    )
+    stk_limit_df = read_parquet_subset(
+        stk_limit_file,
+        columns=["ts_code", "trade_date", "up_limit"],
+        filters=filters,
+    )
+    return {
+        "daily_basic": _build_map(daily_basic_df),
+        "stk_limit": _build_map(stk_limit_df),
+    }
+
+
+def safe_float(value):
+    try:
+        parsed = float(value)
+        if pd.notna(parsed):
+            return parsed
+    except Exception:
+        pass
+    return None
+
+
+def build_official_d0_fields(label, latest_close, range_vol, latest_turnover, br20, research_row, logic_cfg):
+    thresholds = logic_cfg.get("thresholds", {})
+    turnover_f = safe_float((research_row or {}).get("turnover_rate_f"))
+    up_limit = safe_float((research_row or {}).get("up_limit"))
+    limit_up_space_pct = None
+    if up_limit is not None and latest_close not in [0, None]:
+        limit_up_space_pct = (up_limit / latest_close - 1.0) * 100.0
+
+    conditions = {
+        "br20": safe_float(br20) is not None and float(br20) >= float(thresholds.get("br20_min", 1.02)),
+        "limit_up_space": (
+            limit_up_space_pct is not None
+            and limit_up_space_pct >= float(thresholds.get("limit_up_space_min", 0.0))
+            and limit_up_space_pct <= float(thresholds.get("limit_up_space_max", 5.60))
+        ),
+        "turnover": safe_float(latest_turnover) is not None and float(latest_turnover) >= float(thresholds.get("turnover_min", 9.67)),
+        "turnover_f": turnover_f is not None and turnover_f >= float(thresholds.get("turnover_f_min", 15.126)),
+        "range_vol": (
+            safe_float(range_vol) is not None
+            and float(range_vol) >= float(thresholds.get("range_vol_min", 0.666))
+            and float(range_vol) <= float(thresholds.get("range_vol_max", 1.05))
+        ),
+    }
+
+    hit_rules = [name for name, ok in conditions.items() if ok]
+    miss_rules = [name for name, ok in conditions.items() if not ok]
+    score = len(hit_rules)
+    enabled = bool(logic_cfg.get("enabled", True))
+    min_score = int(logic_cfg.get("min_score", 3))
+    flag = enabled and label != "放弃" and score >= min_score
+    if score == 5:
+        tier = "A"
+    elif score == 4:
+        tier = "B"
+    elif score == 3:
+        tier = "C"
+    else:
+        tier = ""
+    return {
+        "d0_turnover_f": round(turnover_f, 4) if turnover_f is not None else None,
+        "d0_limit_up_space_pct": round(limit_up_space_pct, 4) if limit_up_space_pct is not None else None,
+        "d0_range_vol": round(range_vol, 4) if safe_float(range_vol) is not None else None,
+        "official_d0_score": score,
+        "official_d0_flag": "是" if flag else "否",
+        "official_d0_tier": tier,
+        "official_d0_hit_rules": " | ".join(hit_rules),
+        "official_d0_miss_rules": " | ".join(miss_rules),
+    }
+
+
 def calc_clv(high_price, low_price, close_price):
     denominator = high_price - low_price
     if denominator == 0:
@@ -110,6 +255,7 @@ def get_label(vr5, clv, br20, label_rules):
 config = load_config()
 hard_filters = config["hard_filters"]
 label_rules = config["label_rules"]
+official_d0_logic_cfg = config.get("official_d0_logic_v2", {})
 VOLATILITY_WINDOW = int(hard_filters["volatility_window"])
 VOLATILITY_MAX = float(hard_filters["volatility_max"])
 REQUIRE_BULLISH = bool(hard_filters["require_bullish"])
@@ -151,6 +297,10 @@ df_all = df_all.sort_values(["股票代码", "日期"]).reset_index(drop=True)
 stock_count = df_all["股票代码"].nunique()
 print(f"股票数量: {stock_count}")
 print(f"总行数: {len(df_all)}")
+
+latest_points = df_all.groupby("股票代码", sort=False).tail(1)[["股票代码", "日期"]].copy()
+latest_points["trade_date"] = latest_points["日期"].dt.strftime("%Y%m%d")
+research_raw_maps = build_research_raw_maps(latest_points)
 
 results, errors, skipped = [], [], []
 required_history = max(MIN_HISTORY_BARS, VOLATILITY_WINDOW, COLD_VOLUME_WINDOW + 1, 21)
@@ -224,6 +374,12 @@ for idx, (symbol, df) in enumerate(grouped, start=1):
         else:
             label_explain = "放弃=未达到候选/观察分层阈值"
 
+        trade_date_key = latest["日期"].strftime("%Y%m%d")
+        research_row = {}
+        research_row.update(research_raw_maps["daily_basic"].get((symbol, trade_date_key), {}))
+        research_row.update(research_raw_maps["stk_limit"].get((symbol, trade_date_key), {}))
+        official_d0_fields = build_official_d0_fields(label, latest_close, range_vol, latest_turnover, br20, research_row, official_d0_logic_cfg)
+
         results.append({
             "股票代码": symbol,
             "股票名称": name,
@@ -268,6 +424,39 @@ selected_df = pd.DataFrame()
 candidate_df = pd.DataFrame()
 watch_df = pd.DataFrame()
 if not result_df.empty:
+    def _official_row(row):
+        trade_date_key = pd.to_datetime(row["日期"], errors="coerce").strftime("%Y%m%d")
+        research_row = {}
+        research_row.update(research_raw_maps["daily_basic"].get((str(row["股票代码"]).zfill(6), trade_date_key), {}))
+        research_row.update(research_raw_maps["stk_limit"].get((str(row["股票代码"]).zfill(6), trade_date_key), {}))
+        return pd.Series(
+            build_official_d0_fields(
+                row["分层标签"],
+                safe_float(row["收盘"]),
+                safe_float(row[f"{VOLATILITY_WINDOW}日波动率"]),
+                safe_float(row["换手率"]),
+                safe_float(row["BR20"]),
+                research_row,
+                official_d0_logic_cfg,
+            )
+        )
+
+    official_df = result_df.apply(_official_row, axis=1)
+    result_df = pd.concat([result_df, official_df], axis=1)
+    tier_weight = result_df["official_d0_tier"].map({"A": 3000000, "B": 2000000, "C": 1000000}).fillna(0)
+    br20_rank = pd.to_numeric(result_df["BR20"], errors="coerce").fillna(0)
+    turnover_rank = pd.to_numeric(result_df["换手率"], errors="coerce").fillna(0)
+    turnover_f_rank = pd.to_numeric(result_df["d0_turnover_f"], errors="coerce").fillna(0)
+    result_df["_硬过滤排序值"] = result_df["official_d0_flag"].eq("是").astype(int)
+    result_df["_标签排序值"] = tier_weight + (result_df["official_d0_score"].fillna(0) * 10000) + (br20_rank * 1000) + turnover_rank + (turnover_f_rank / 100.0)
+    result_df["_official_d0_flag_sort"] = result_df["official_d0_flag"].eq("是").astype(int)
+    result_df["_official_d0_tier_sort"] = result_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
+    result_df = result_df.sort_values(
+        by=["_official_d0_flag_sort", "_official_d0_tier_sort", "official_d0_score", "BR20", "换手率", "d0_turnover_f", "_硬过滤排序值", "_标签排序值"],
+        ascending=[False, True, False, False, False, False, False, False],
+    )
+    result_df["_official_d0_flag_sort"] = result_df["official_d0_flag"].eq("是").astype(int)
+    result_df["_official_d0_tier_sort"] = result_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
     result_df = result_df.sort_values(by=["_硬过滤排序值", "_标签排序值", "命中硬过滤数", "VR5", "BR20", "换手率", "量比前一日"], ascending=[False, False, False, False, False, False, False])
     selected_df = result_df[result_df["硬过滤是否通过"] == "是"].copy()
     candidate_df = result_df[result_df["分层标签"] == "候选"].copy()
@@ -279,6 +468,13 @@ if not result_df.empty:
         candidate_df = candidate_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
     if not watch_df.empty:
         watch_df = watch_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
+
+for frame_name in ["result_df", "selected_df", "candidate_df", "watch_df"]:
+    current_df = locals().get(frame_name)
+    if current_df is not None and not current_df.empty:
+        hidden_cols = [col for col in ["_official_d0_flag_sort", "_official_d0_tier_sort"] if col in current_df.columns]
+        if hidden_cols:
+            locals()[frame_name] = current_df.drop(columns=hidden_cols)
 
 result_df.to_csv(all_result_file, index=False, encoding="utf-8-sig")
 selected_df.to_csv(selected_file, index=False, encoding="utf-8-sig")
