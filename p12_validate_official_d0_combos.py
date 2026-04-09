@@ -59,11 +59,16 @@ KEY_COMBO_RULES = [
     ("combo_br20_range_vol", ["cond_br20_strong", "cond_range_vol_good"], "BR20 + range_vol"),
     ("combo_br20_turnover_turnover_f", ["cond_br20_strong", "cond_turnover_good", "cond_turnover_f_good"], "BR20 + turnover + turnover_f"),
     ("combo_br20_limit_up_space_turnover", ["cond_br20_strong", "cond_limit_up_space_good", "cond_turnover_good"], "BR20 + limit_up_space + turnover"),
-    ("combo_br20_limit_up_space_turnover_range_vol", ["cond_br20_strong", "cond_limit_up_space_good", "cond_turnover_good", "cond_range_vol_good"], "BR20 + limit_up_space + turnover + range_vol"),
+    (
+        "combo_br20_limit_up_space_turnover_range_vol",
+        ["cond_br20_strong", "cond_limit_up_space_good", "cond_turnover_good", "cond_range_vol_good"],
+        "BR20 + limit_up_space + turnover + range_vol",
+    ),
     ("combo_all_5", [name for name, _ in CONDITION_SPECS], "all 5 conditions"),
 ]
 
 SUCCESS_LABELS = ["d1_stable_flag", "d2_sellable_flag", "success_composite_flag"]
+BALANCED_ALLOWED_SCORE_RULES = {"score_ge_3", "score_ge_4"}
 
 
 @dataclass
@@ -107,7 +112,10 @@ def load_combo_validation_config(path: Path | None) -> ComboValidationConfig:
     research_cfg = load_json(path or DEFAULT_RESEARCH_CONFIG_FILE)
     scan_cfg = load_json(SCAN_CONFIG_FILE)
     combo_cfg = deep_merge(DEFAULT_COMBO_VALIDATION, research_cfg.get("combo_validation", {}))
-    official_cfg = deep_merge(combo_cfg.get("official_d0_logic_v2", DEFAULT_OFFICIAL_D0_LOGIC), scan_cfg.get("official_d0_logic_v2", {}))
+    official_cfg = deep_merge(
+        combo_cfg.get("official_d0_logic_v2", DEFAULT_OFFICIAL_D0_LOGIC),
+        scan_cfg.get("official_d0_logic_v2", {}),
+    )
     trusted_cfg = combo_cfg.get("trusted_hint", {})
     return ComboValidationConfig(
         sample_filter=str(research_cfg.get("sample_filter", "hard_pass_or_watch")),
@@ -121,8 +129,7 @@ def load_combo_validation_config(path: Path | None) -> ComboValidationConfig:
 
 def derive_config_tag(config_path: Path | None, sample_filter: str) -> str:
     if config_path is not None:
-        stem = config_path.stem
-        parts = [part for part in stem.split(".") if part]
+        parts = [part for part in config_path.stem.split(".") if part]
         if parts:
             candidate = parts[-1].strip().lower()
             if candidate and candidate not in {"json", "research_config"}:
@@ -189,20 +196,24 @@ def compute_condition_columns(df: pd.DataFrame, cfg: ComboValidationConfig) -> p
     thresholds = cfg.official_d0_logic_v2.get("thresholds", {})
     work = df.copy()
     work["cond_br20_strong"] = pd.to_numeric(work["br20"], errors="coerce") >= float(thresholds.get("br20_min", 1.02))
+
     limit_up_space = pd.to_numeric(work["d0_limit_up_space_pct"], errors="coerce")
     work["cond_limit_up_space_good"] = (
         limit_up_space >= float(thresholds.get("limit_up_space_min", 0.0))
     ) & (
         limit_up_space <= float(thresholds.get("limit_up_space_max", 5.60))
     )
+
     work["cond_turnover_good"] = pd.to_numeric(work["d0_turnover"], errors="coerce") >= float(thresholds.get("turnover_min", 9.67))
     work["cond_turnover_f_good"] = pd.to_numeric(work["d0_turnover_f"], errors="coerce") >= float(thresholds.get("turnover_f_min", 15.126))
+
     range_vol = pd.to_numeric(work["d0_range_vol"], errors="coerce")
     work["cond_range_vol_good"] = (
         range_vol >= float(thresholds.get("range_vol_min", 0.666))
     ) & (
         range_vol <= float(thresholds.get("range_vol_max", 1.05))
     )
+
     condition_names = [name for name, _ in CONDITION_SPECS]
     work[condition_names] = work[condition_names].fillna(False)
     work["official_d0_score"] = work[condition_names].sum(axis=1).astype(int)
@@ -210,8 +221,14 @@ def compute_condition_columns(df: pd.DataFrame, cfg: ComboValidationConfig) -> p
     work.loc[work["official_d0_score"] == 5, "official_d0_tier"] = "A"
     work.loc[work["official_d0_score"] == 4, "official_d0_tier"] = "B"
     work.loc[work["official_d0_score"] == 3, "official_d0_tier"] = "C"
-    work["official_d0_hit_rules"] = work[condition_names].apply(lambda row: " | ".join([name for name in condition_names if bool(row[name])]), axis=1)
-    work["official_d0_miss_rules"] = work[condition_names].apply(lambda row: " | ".join([name for name in condition_names if not bool(row[name])]), axis=1)
+    work["official_d0_hit_rules"] = work[condition_names].apply(
+        lambda row: " | ".join([name for name in condition_names if bool(row[name])]),
+        axis=1,
+    )
+    work["official_d0_miss_rules"] = work[condition_names].apply(
+        lambda row: " | ".join([name for name in condition_names if not bool(row[name])]),
+        axis=1,
+    )
     return work
 
 
@@ -219,8 +236,7 @@ def make_rule_mask(df: pd.DataFrame, rule_name: str) -> pd.Series:
     if rule_name in {name for name, _ in CONDITION_SPECS}:
         return df[rule_name].astype(bool)
     if rule_name.startswith("score_eq_"):
-        score = int(rule_name.split("_")[-1])
-        return df["official_d0_score"] == score
+        return df["official_d0_score"] == int(rule_name.split("_")[-1])
     if rule_name == "score_ge_3":
         return df["official_d0_score"] >= 3
     if rule_name == "score_ge_4":
@@ -231,6 +247,7 @@ def make_rule_mask(df: pd.DataFrame, rule_name: str) -> pd.Series:
         return df["official_d0_score"] >= 3
     if rule_name == "combo_any_4":
         return df["official_d0_score"] >= 4
+
     combo_lookup = {name: members for name, members, _ in KEY_COMBO_RULES}
     members = combo_lookup.get(rule_name)
     if members is None:
@@ -261,9 +278,11 @@ def build_summary_row(
     scoped_total = len(scoped_df)
     base_success = normalize_flag(scoped_df["success_composite_flag"])
     base_rate = float(base_success.mean()) if scoped_total else 0.0
+
     sub = scoped_df[mask].copy()
     sample_count = len(sub)
     sample_ratio = sample_count / scoped_total if scoped_total else 0.0
+
     if sample_count:
         d1_rate = float(normalize_flag(sub["d1_stable_flag"]).mean())
         d2_rate = float(normalize_flag(sub["d2_sellable_flag"]).mean())
@@ -272,8 +291,12 @@ def build_summary_row(
         d1_rate = 0.0
         d2_rate = 0.0
         composite_rate = 0.0
+
     lift = (composite_rate / base_rate) if base_rate > 0 else None
-    trusted_hint = bool(sample_ratio >= cfg.trusted_min_sample_ratio and (lift or 0.0) >= cfg.trusted_min_lift)
+    trusted_hint = bool(
+        sample_ratio >= cfg.trusted_min_sample_ratio and (lift or 0.0) >= cfg.trusted_min_lift
+    )
+
     return {
         "rule_group": rule_group,
         "rule_name": rule_name,
@@ -281,6 +304,7 @@ def build_summary_row(
         "condition_count": condition_count,
         "sample_count": sample_count,
         "sample_ratio": round(sample_ratio, 6),
+        "base_success_rate": round(base_rate, 6),
         "d1_stable_rate": round(d1_rate, 6),
         "d2_sellable_rate": round(d2_rate, 6),
         "success_composite_rate": round(composite_rate, 6),
@@ -313,18 +337,79 @@ def summarize_rules(df: pd.DataFrame, cfg: ComboValidationConfig) -> pd.DataFram
         scoped_df = df[bucket_scope_mask(df, scope)].copy()
         if scoped_df.empty:
             continue
+
         for rule_name, _ in CONDITION_SPECS:
-            rows.append(build_summary_row(scoped_df, make_rule_mask(scoped_df, rule_name), "single_condition", rule_name, scope, 1, single_condition_notes[rule_name], cfg))
+            rows.append(
+                build_summary_row(
+                    scoped_df,
+                    make_rule_mask(scoped_df, rule_name),
+                    "single_condition",
+                    rule_name,
+                    scope,
+                    1,
+                    single_condition_notes[rule_name],
+                    cfg,
+                )
+            )
+
         for score in range(6):
             rule_name = f"score_eq_{score}"
-            rows.append(build_summary_row(scoped_df, make_rule_mask(scoped_df, rule_name), "score_bucket", rule_name, scope, score, f"exact score bucket {score}", cfg))
+            rows.append(
+                build_summary_row(
+                    scoped_df,
+                    make_rule_mask(scoped_df, rule_name),
+                    "score_bucket",
+                    rule_name,
+                    scope,
+                    score,
+                    f"exact score bucket {score}",
+                    cfg,
+                )
+            )
+
         for rule_name in ["score_ge_3", "score_ge_4", "score_eq_5"]:
             condition_count = 3 if rule_name == "score_ge_3" else 4 if rule_name == "score_ge_4" else 5
-            rows.append(build_summary_row(scoped_df, make_rule_mask(scoped_df, rule_name), "score_bucket", rule_name, scope, condition_count, "score threshold summary", cfg))
+            rows.append(
+                build_summary_row(
+                    scoped_df,
+                    make_rule_mask(scoped_df, rule_name),
+                    "score_bucket",
+                    rule_name,
+                    scope,
+                    condition_count,
+                    "score threshold summary",
+                    cfg,
+                )
+            )
+
         for rule_name, members, _ in KEY_COMBO_RULES:
-            rows.append(build_summary_row(scoped_df, make_rule_mask(scoped_df, rule_name), "combo_rule", rule_name, scope, len(members), combo_notes[rule_name], cfg))
+            rows.append(
+                build_summary_row(
+                    scoped_df,
+                    make_rule_mask(scoped_df, rule_name),
+                    "combo_rule",
+                    rule_name,
+                    scope,
+                    len(members),
+                    combo_notes[rule_name],
+                    cfg,
+                )
+            )
+
         for rule_name, condition_count in [("combo_any_3", 3), ("combo_any_4", 4)]:
-            rows.append(build_summary_row(scoped_df, make_rule_mask(scoped_df, rule_name), "combo_rule", rule_name, scope, condition_count, combo_notes[rule_name], cfg))
+            rows.append(
+                build_summary_row(
+                    scoped_df,
+                    make_rule_mask(scoped_df, rule_name),
+                    "combo_rule",
+                    rule_name,
+                    scope,
+                    condition_count,
+                    combo_notes[rule_name],
+                    cfg,
+                )
+            )
+
     return pd.DataFrame(rows)
 
 
@@ -356,17 +441,33 @@ def build_detail_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def summary_table(summary_df: pd.DataFrame, rule_group: str, scope: str, top_n: int = 10) -> pd.DataFrame:
-    sub = summary_df[(summary_df["rule_group"] == rule_group) & (summary_df["bucket_scope"] == scope)].copy()
+    sub = summary_df[
+        (summary_df["rule_group"] == rule_group)
+        & (summary_df["bucket_scope"] == scope)
+    ].copy()
     if sub.empty:
         return sub
-    return sub.sort_values(["trusted_hint", "composite_lift_vs_base", "sample_ratio"], ascending=[False, False, False]).head(top_n)
+    return sub.sort_values(
+        ["trusted_hint", "composite_lift_vs_base", "sample_ratio"],
+        ascending=[False, False, False],
+    ).head(top_n)
 
 
 def compare_candidate_watch(summary_df: pd.DataFrame) -> pd.DataFrame:
     sub = summary_df[
         (summary_df["rule_group"] == "combo_rule")
         & (summary_df["bucket_scope"].isin(["候选", "观察"]))
-    ][["rule_name", "bucket_scope", "sample_count", "sample_ratio", "success_composite_rate", "composite_lift_vs_base"]].copy()
+    ][
+        [
+            "rule_name",
+            "bucket_scope",
+            "sample_count",
+            "sample_ratio",
+            "base_success_rate",
+            "success_composite_rate",
+            "composite_lift_vs_base",
+        ]
+    ].copy()
     if sub.empty:
         return sub
     return sub.sort_values(["rule_name", "bucket_scope"]).reset_index(drop=True)
@@ -375,8 +476,14 @@ def compare_candidate_watch(summary_df: pd.DataFrame) -> pd.DataFrame:
 def choose_balanced_rule(summary_df: pd.DataFrame, scope: str) -> pd.Series | None:
     sub = summary_df[
         (summary_df["bucket_scope"] == scope)
-        & (summary_df["rule_group"].isin(["score_bucket", "combo_rule"]))
         & (summary_df["sample_count"] > 0)
+        & (
+            (
+                (summary_df["rule_group"] == "score_bucket")
+                & (summary_df["rule_name"].isin(BALANCED_ALLOWED_SCORE_RULES))
+            )
+            | (summary_df["rule_group"] == "combo_rule")
+        )
     ].copy()
     if sub.empty:
         return None
@@ -399,16 +506,37 @@ def choose_small_sample_winner(summary_df: pd.DataFrame, scope: str) -> pd.Serie
     return sub.iloc[0]
 
 
+def scope_base_rate(summary_df: pd.DataFrame, scope: str) -> float | None:
+    sub = summary_df[summary_df["bucket_scope"] == scope].copy()
+    if sub.empty:
+        return None
+    values = pd.to_numeric(sub["base_success_rate"], errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.iloc[0])
+
+
 def build_markdown_report(summary_df: pd.DataFrame, cfg: ComboValidationConfig, dataset_name: str) -> str:
-    all_base = summary_df[(summary_df["rule_group"] == "score_bucket") & (summary_df["rule_name"] == "score_eq_0") & (summary_df["bucket_scope"] == "all")]
-    baseline_text = "基准成功率未计算"
-    overall_scope = summary_df[(summary_df["bucket_scope"] == "all") & (summary_df["rule_group"] == "single_condition")]
-    if not overall_scope.empty:
-        baseline_rate = overall_scope["success_composite_rate"].max()
-        baseline_text = f"全样本组合基准参考成功率约为 `{baseline_rate:.4f}`"
+    scope_labels = {
+        "all": "全样本",
+        "non_abandon": "non_abandon",
+        "候选": "候选",
+        "观察": "观察",
+        "入围": "入围",
+    }
+    baseline_lines: list[str] = []
+    for scope in ["all", "non_abandon", "候选", "观察", "入围"]:
+        base_rate = scope_base_rate(summary_df, scope)
+        if base_rate is not None:
+            baseline_lines.append(f"- `{scope_labels.get(scope, scope)}` baseline = `{base_rate:.4f}`")
+    if not baseline_lines:
+        baseline_lines = ["基准成功率未计算"]
 
     single_top = summary_table(summary_df, "single_condition", "all", top_n=5)
-    score_all = summary_df[(summary_df["rule_group"] == "score_bucket") & (summary_df["bucket_scope"] == "all")].copy()
+    score_all = summary_df[
+        (summary_df["rule_group"] == "score_bucket")
+        & (summary_df["bucket_scope"] == "all")
+    ].copy()
     combo_top = summary_table(summary_df, "combo_rule", "all", top_n=8)
     candidate_watch = compare_candidate_watch(summary_df)
 
@@ -417,26 +545,36 @@ def build_markdown_report(summary_df: pd.DataFrame, cfg: ComboValidationConfig, 
     small_sample = choose_small_sample_winner(summary_df, "all")
 
     conclusion_lines = []
-    score_ge_3 = summary_df[(summary_df["rule_name"] == "score_ge_3") & (summary_df["bucket_scope"] == "all")]
+    score_ge_3 = summary_df[
+        (summary_df["rule_name"] == "score_ge_3")
+        & (summary_df["bucket_scope"] == "all")
+    ]
     if not score_ge_3.empty:
         row = score_ge_3.iloc[0]
         conclusion_lines.append(
-            f"- `score>=3` 在全样本上的 success_composite_rate 为 `{row['success_composite_rate']:.4f}`，lift 为 `{row['composite_lift_vs_base']:.4f}`。"
+            f"- `score>=3` 在全样本上的 success_composite_rate 为 `{row['success_composite_rate']:.4f}`，base_success_rate 为 `{row['base_success_rate']:.4f}`，lift 为 `{row['composite_lift_vs_base']:.4f}`。"
         )
-    score_ge_4 = summary_df[(summary_df["rule_name"] == "score_ge_4") & (summary_df["bucket_scope"] == "all")]
+
+    score_ge_4 = summary_df[
+        (summary_df["rule_name"] == "score_ge_4")
+        & (summary_df["bucket_scope"] == "all")
+    ]
     if not score_ge_4.empty:
         row = score_ge_4.iloc[0]
         conclusion_lines.append(
-            f"- `score>=4` 的样本占比为 `{row['sample_ratio']:.4f}`，success_composite_rate 为 `{row['success_composite_rate']:.4f}`，可用来判断是否值得做更强池。"
+            f"- `score>=4` 的样本占比为 `{row['sample_ratio']:.4f}`，success_composite_rate 为 `{row['success_composite_rate']:.4f}`，base_success_rate 为 `{row['base_success_rate']:.4f}`，可用来判断是否值得做更强池。"
         )
+
     if balanced_all is not None:
         conclusion_lines.append(
-            f"- 全样本里样本量与提升更平衡的规则是 `{balanced_all['rule_name']}`，sample_ratio=`{balanced_all['sample_ratio']:.4f}`，lift=`{balanced_all['composite_lift_vs_base']:.4f}`。"
+            f"- 全样本里样本量与提升更平衡的规则是 `{balanced_all['rule_name']}`，sample_ratio=`{balanced_all['sample_ratio']:.4f}`，success/base=`{balanced_all['success_composite_rate']:.4f}`/`{balanced_all['base_success_rate']:.4f}`，lift=`{balanced_all['composite_lift_vs_base']:.4f}`。"
         )
+
     if balanced_candidate is not None:
         conclusion_lines.append(
-            f"- 候选池里更平衡的规则是 `{balanced_candidate['rule_name']}`，sample_ratio=`{balanced_candidate['sample_ratio']:.4f}`，lift=`{balanced_candidate['composite_lift_vs_base']:.4f}`。"
+            f"- 候选池里更平衡的规则是 `{balanced_candidate['rule_name']}`，sample_ratio=`{balanced_candidate['sample_ratio']:.4f}`，success/base=`{balanced_candidate['success_composite_rate']:.4f}`/`{balanced_candidate['base_success_rate']:.4f}`，lift=`{balanced_candidate['composite_lift_vs_base']:.4f}`。"
         )
+
     if small_sample is not None:
         conclusion_lines.append(
             f"- 需要警惕的小样本高光规则是 `{small_sample['rule_name']}`，它的 sample_ratio 只有 `{small_sample['sample_ratio']:.4f}`。"
@@ -454,7 +592,7 @@ def build_markdown_report(summary_df: pd.DataFrame, cfg: ComboValidationConfig, 
         "",
         "## 基准成功率",
         "",
-        baseline_text,
+        *baseline_lines,
         "",
         "## 单条件结果 Top",
         "",
