@@ -1301,13 +1301,23 @@ class GuiApp:
             self.task_vars["total_progress"].set(f"{idx - 1} + 当前步骤 / {self.total_steps_expected}")
 
     def _apply_result(self, result: dict):
-        self.status_vars["success"].set(str(result.get("success", "-")))
+        success_value = result.get("success", "-")
+        if success_value is True:
+            success_display = "成功"
+        elif success_value is False:
+            success_display = "失败"
+        else:
+            success_display = str(success_value)
+        self.status_vars["success"].set(success_display)
         self.status_vars["missing_count"].set(str(result.get("missing_count", 0)))
         self.status_vars["created_count"].set(str(result.get("created_count", 0)))
         self.status_vars["error_count"].set(str(result.get("error_count", 0)))
         self.status_vars["skipped_count"].set(str(result.get("skipped_count", 0)))
         self.status_vars["output_paths_count"].set(str(len(result.get("output_paths", []) or [])))
-        self.status_vars["message"].set(str(result.get("message", "")))
+        message = str(result.get("message", ""))
+        if success_value is False and message:
+            message = f"失败：{message}"
+        self.status_vars["message"].set(message)
         step_name = result.get("step_name", "result")
         summary = f"success={result.get('success', '-')}, missing={result.get('missing_count', 0)}, created={result.get('created_count', 0)}, errors={result.get('error_count', 0)}, skipped={result.get('skipped_count', 0)}, outputs={len(result.get('output_paths', []) or [])}"
         self.append_log(f"[{STEP_LABELS.get(step_name, step_name)}] 结果：{summary}", "summary")
