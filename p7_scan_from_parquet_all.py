@@ -67,6 +67,18 @@ DEFAULT_CONFIG = {
             "range_vol_max": 1.05,
         },
     },
+    "research_mainline_v1": {
+        "enabled": True,
+        "default_exit_bias": "d2_close",
+        "families": {
+            "hardpass_high_score": {"enabled": True, "priority": 400, "pool_bucket": "主线", "win_rate": 0.512},
+            "hardpass_space_turnover": {"enabled": True, "priority": 300, "pool_bucket": "主线", "win_rate": 0.493},
+            "hardpass_core": {"enabled": True, "priority": 200, "pool_bucket": "主线", "win_rate": 0.477},
+            "candidate_continuation": {"enabled": True, "priority": 100, "pool_bucket": "主线", "win_rate": 0.459},
+            "candidate_secondary_core": {"enabled": True, "priority": 90, "pool_bucket": "副池", "win_rate": 0.451},
+            "watch_repair": {"enabled": False, "priority": 10, "pool_bucket": "其他", "win_rate": 0.0},
+        },
+    },
 }
 
 
@@ -233,11 +245,193 @@ def build_official_d0_fields(label, latest_close, range_vol, latest_turnover, br
     }
 
 
+def build_research_mainline_fields(row, cfg):
+    families_cfg = (cfg or {}).get("families", {})
+    enabled = bool((cfg or {}).get("enabled", True))
+    default_priority = 0
+    if not enabled:
+        return {
+            "research_mainline": "否",
+            "research_mainline_family": "",
+            "research_mainline_priority": default_priority,
+            "research_pool_bucket": "其他",
+            "research_family_win_rate": 0.0,
+            "research_mainline_note": "research_mainline_disabled",
+        }
+
+    hard_pass = str(row.get("硬过滤是否通过", "")).strip() == "是"
+    label = str(row.get("分层标签", "")).strip()
+    score = int(safe_float(row.get("official_d0_score")) or 0)
+    br20 = safe_float(row.get("BR20"))
+    turnover = safe_float(row.get("换手率"))
+    turnover_f = safe_float(row.get("d0_turnover_f"))
+    limit_up_space_pct = safe_float(row.get("d0_limit_up_space_pct"))
+    official_flag = str(row.get("official_d0_flag", "")).strip() == "是"
+
+    cond_br20 = br20 is not None and br20 >= 1.02
+    cond_limit_up_space = limit_up_space_pct is not None and 0.0 <= limit_up_space_pct <= 5.60
+    cond_turnover = turnover is not None and turnover >= 9.67
+    cond_turnover_f = turnover_f is not None and turnover_f >= 15.126
+    cond_watch_repair = label == "观察" and score >= 3 and cond_turnover
+
+    family_candidates = [
+        (
+            "hardpass_high_score",
+            hard_pass and score >= 4 and cond_br20 and cond_limit_up_space,
+            "主池：hardpass 高分强子集",
+        ),
+        (
+            "hardpass_space_turnover",
+            hard_pass and score >= 3 and cond_limit_up_space and cond_turnover,
+            "主池：hardpass 空间+换手主线",
+        ),
+        (
+            "hardpass_core",
+            hard_pass and score >= 3,
+            "主池：hardpass 宽基线",
+        ),
+        (
+            "candidate_continuation",
+            label == "候选" and official_flag and score >= 3 and cond_br20 and cond_limit_up_space,
+            "次池：candidate continuation 主线",
+        ),
+        (
+            "candidate_secondary_core",
+            label == "候选" and official_flag and score >= 3 and cond_br20 and cond_turnover,
+            "副池：candidate secondary core 放宽候选线",
+        ),
+        (
+            "watch_repair",
+            cond_watch_repair,
+            "观察线：watch repair（默认不进主池）",
+        ),
+    ]
+
+    for family_name, matched, note in family_candidates:
+        family_cfg = families_cfg.get(family_name, {})
+        if matched and bool(family_cfg.get("enabled", False)):
+            return {
+                "research_mainline": "是",
+                "research_mainline_family": family_name,
+                "research_mainline_priority": int(family_cfg.get("priority", default_priority)),
+                "research_pool_bucket": str(family_cfg.get("pool_bucket", "其他")),
+                "research_family_win_rate": round(float(family_cfg.get("win_rate", 0.0)), 3),
+                "research_mainline_note": note,
+            }
+
+    if cond_watch_repair:
+        return {
+            "research_mainline": "否",
+            "research_mainline_family": "",
+            "research_mainline_priority": default_priority,
+            "research_pool_bucket": "其他",
+            "research_family_win_rate": 0.0,
+            "research_mainline_note": "watch_repair_disabled",
+        }
+
+    return {
+        "research_mainline": "否",
+        "research_mainline_family": "",
+        "research_mainline_priority": default_priority,
+        "research_pool_bucket": "其他",
+        "research_family_win_rate": 0.0,
+        "research_mainline_note": "not_in_current_mainline",
+    }
+
+
+P15_RECENT_METADATA = {
+    "hardpass_high_score": {
+        "recent_sort_bias": 0,
+        "recent_note": "P14 mainline; do not let short-window P15 noise rewrite the core line.",
+        "d1_tag": "假突破回落要谨慎",
+        "d1_note": "Still treat this as a D1 breakout line. If price crosses breakout intraday but closes back below it, current P15 treats that as a strong risk signal.",
+        "d2_tag": "默认偏D2收盘",
+        "d2_note": "Default understanding still biases to d2_close; do not rewrite it lightly with small recent samples.",
+    },
+    "hardpass_space_turnover": {
+        "recent_sort_bias": 0,
+        "recent_note": "P14 mainline; recent sample is small, so breakout quality matters more than recent headline win rate.",
+        "d1_tag": "要看干净突破",
+        "d1_note": "This is still a breakout-first line. Intraday touch alone is not enough; focus on whether D1 can actually hold the breakout line.",
+        "d2_tag": "默认偏D2收盘",
+        "d2_note": "Current default still leans to d2_close, especially after a cleaner D1 confirmation.",
+    },
+    "hardpass_core": {
+        "recent_sort_bias": -1,
+        "recent_note": "P14 mainline broad base; recent window is a bit weaker, but this should stay a light caution, not a rewrite.",
+        "d1_tag": "弱突破先等确认",
+        "d1_note": "Recent broader-base samples need clearer breakout confirmation. A mere intraday touch is not enough to read as strength.",
+        "d2_tag": "仍偏D2收盘",
+        "d2_note": "Exit still defaults to d2_close; if D1 is weak, D2 should be handled more cautiously.",
+    },
+    "candidate_continuation": {
+        "recent_sort_bias": 2,
+        "recent_note": "Recent shortlist execution quality is still reasonably stable and remains ahead of the secondary pool.",
+        "d1_tag": "重点看站稳突破线",
+        "d1_note": "For D1, the key is not only touching breakout but actually holding it. If price crosses intraday but closes back below breakout, recent failures rise sharply.",
+        "d2_tag": "默认偏D2收盘",
+        "d2_note": "Current default reads this line through d2_close. d2_open is still kept as a comparison path, but not the main answer.",
+    },
+    "candidate_secondary_core": {
+        "recent_sort_bias": 0,
+        "recent_note": "Post-trigger quality is not obviously worse than candidate mainline, but recent names here more often fail to trigger breakout at all.",
+        "d1_tag": "更易不触发突破",
+        "d1_note": "The main issue in this secondary pool is often not bad post-entry quality, but that D1 more often never triggers breakout. Do not assume it will definitely trade.",
+        "d2_tag": "先要更强D1",
+        "d2_note": "Only after D1 truly confirms and holds breakout should D2 be treated on a mainline rhythm. Weak breakout behavior should be handled more cautiously.",
+    },
+    "watch_repair": {
+        "recent_sort_bias": -6,
+        "recent_note": "Recent behavior is closer to an observation/repair line and should not be mixed with the mainline.",
+        "d1_tag": "仅观察强确认",
+        "d1_note": "This is better treated as observation unless D1 shows a very clear breakout confirmation.",
+        "d2_tag": "弱修复勿恋战",
+        "d2_note": "If D2 still lacks a strong confirmation, it should be handled more like a quick review than an extended hold thesis.",
+    },
+}
+
+DEFAULT_P15_RECENT_METADATA = {
+    "recent_sort_bias": -2,
+    "recent_note": "Outside the current confirmed P14/P15 core view; better read as supplemental reference.",
+    "d1_tag": "先看真突破",
+    "d1_note": "First check whether D1 truly triggers and holds breakout. A brief intraday touch should not be read as a strong confirmation.",
+    "d2_tag": "弱D1更要谨慎",
+    "d2_note": "If D1 lacks strong confirmation, D2 should lean toward caution rather than blind continuation.",
+}
+
+
+def build_research_attention_fields(row):
+    family = str(row.get("research_mainline_family", "")).strip()
+    meta = P15_RECENT_METADATA.get(family, DEFAULT_P15_RECENT_METADATA)
+    family_name = family or "other"
+    recent_note = str(meta.get("recent_note", "")).strip()
+    d1_note = str(meta.get("d1_note", "")).strip()
+    d2_note = str(meta.get("d2_note", "")).strip()
+    return {
+        "research_recent_sort_bias": int(meta.get("recent_sort_bias", 0)),
+        "research_recent_note": recent_note,
+        "d1_attention_tag": str(meta.get("d1_tag", "")).strip(),
+        "d1_attention_note": d1_note,
+        "d2_attention_tag": str(meta.get("d2_tag", "")).strip(),
+        "d2_attention_note": d2_note,
+        "research_sort_note": f"P14 mainline skeleton + light P15 adjustment; family={family_name}",
+        "research_trade_attention": " | ".join([part for part in [d1_note, d2_note] if part]),
+    }
+
+
 def calc_clv(high_price, low_price, close_price):
     denominator = high_price - low_price
     if denominator == 0:
         return 0.0
     return ((close_price - low_price) - (high_price - close_price)) / denominator
+
+
+def calc_true_range_series(df):
+    prev_close = df["收盘"].shift(1)
+    tr1 = df["最高"] - df["最低"]
+    tr2 = (df["最高"] - prev_close).abs()
+    tr3 = (df["最低"] - prev_close).abs()
+    return pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
 
 def get_label(vr5, clv, br20, label_rules):
@@ -256,6 +450,7 @@ config = load_config()
 hard_filters = config["hard_filters"]
 label_rules = config["label_rules"]
 official_d0_logic_cfg = config.get("official_d0_logic_v2", {})
+research_mainline_cfg = config.get("research_mainline_v1", {})
 VOLATILITY_WINDOW = int(hard_filters["volatility_window"])
 VOLATILITY_MAX = float(hard_filters["volatility_max"])
 REQUIRE_BULLISH = bool(hard_filters["require_bullish"])
@@ -344,6 +539,10 @@ for idx, (symbol, df) in enumerate(grouped, start=1):
         pct_change = (latest_close / prev_close - 1) * 100 if prev_close != 0 else 0.0
         prior_cold_df = df.iloc[-(COLD_VOLUME_WINDOW + 1):-1]
         prior_max_volume = float(prior_cold_df["成交量"].max()) if not prior_cold_df.empty else 0.0
+        tr_series = calc_true_range_series(df[["最高", "最低", "收盘"]].copy())
+        atr14 = float(tr_series.rolling(14, min_periods=5).mean().iloc[-1]) if not tr_series.empty and pd.notna(tr_series.rolling(14, min_periods=5).mean().iloc[-1]) else 0.0
+        breakout_price = max(latest_high, prev_20_high)
+        target_price_1 = breakout_price + 0.5 * atr14
 
         rule_low_vol = range_vol <= VOLATILITY_MAX
         rule_bullish = (latest_close > latest_open) if REQUIRE_BULLISH else True
@@ -398,6 +597,8 @@ for idx, (symbol, df) in enumerate(grouped, start=1):
             "VR5": round(vr5, 2),
             "CLV": round(clv, 2),
             "BR20": round(br20, 3),
+            "breakout_price": round(breakout_price, 3),
+            "target_price_1": round(target_price_1, 3),
             "低波动通过": "是" if rule_low_vol else "否",
             "阳线通过": "是" if rule_bullish else "否",
             "放量区间通过": "是" if rule_big_volume else "否",
@@ -443,6 +644,10 @@ if not result_df.empty:
 
     official_df = result_df.apply(_official_row, axis=1)
     result_df = pd.concat([result_df, official_df], axis=1)
+    research_mainline_df = result_df.apply(lambda row: pd.Series(build_research_mainline_fields(row, research_mainline_cfg)), axis=1)
+    result_df = pd.concat([result_df, research_mainline_df], axis=1)
+    attention_df = result_df.apply(lambda row: pd.Series(build_research_attention_fields(row)), axis=1)
+    result_df = pd.concat([result_df, attention_df], axis=1)
     tier_weight = result_df["official_d0_tier"].map({"A": 3000000, "B": 2000000, "C": 1000000}).fillna(0)
     br20_rank = pd.to_numeric(result_df["BR20"], errors="coerce").fillna(0)
     turnover_rank = pd.to_numeric(result_df["换手率"], errors="coerce").fillna(0)
@@ -451,23 +656,25 @@ if not result_df.empty:
     result_df["_标签排序值"] = tier_weight + (result_df["official_d0_score"].fillna(0) * 10000) + (br20_rank * 1000) + turnover_rank + (turnover_f_rank / 100.0)
     result_df["_official_d0_flag_sort"] = result_df["official_d0_flag"].eq("是").astype(int)
     result_df["_official_d0_tier_sort"] = result_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
+    result_df["_research_mainline_sort"] = pd.to_numeric(result_df["research_mainline_priority"], errors="coerce").fillna(0)
+    result_df["_research_pool_sort"] = result_df["research_pool_bucket"].map({"主线": 2, "副池": 1, "其他": 0}).fillna(0)
+    result_df["_research_recent_sort_bias"] = pd.to_numeric(result_df["research_recent_sort_bias"], errors="coerce").fillna(0)
+    result_df["_research_win_rate_sort"] = pd.to_numeric(result_df["research_family_win_rate"], errors="coerce").fillna(0.0)
+    result_df["_label_rank_sort"] = result_df["分层标签"].map({"候选": 0, "观察": 1, "放弃": 2}).fillna(9)
     result_df = result_df.sort_values(
-        by=["_official_d0_flag_sort", "_official_d0_tier_sort", "official_d0_score", "BR20", "换手率", "d0_turnover_f", "_硬过滤排序值", "_标签排序值"],
-        ascending=[False, True, False, False, False, False, False, False],
+        by=["_research_pool_sort", "_research_win_rate_sort", "_research_mainline_sort", "_research_recent_sort_bias", "_official_d0_flag_sort", "_official_d0_tier_sort", "official_d0_score", "_label_rank_sort", "BR20", "换手率", "d0_turnover_f", "_硬过滤排序值", "_标签排序值"],
+        ascending=[False, False, False, False, False, True, False, True, False, False, False, False, False],
     )
-    result_df["_official_d0_flag_sort"] = result_df["official_d0_flag"].eq("是").astype(int)
-    result_df["_official_d0_tier_sort"] = result_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
-    result_df = result_df.sort_values(by=["_硬过滤排序值", "_标签排序值", "命中硬过滤数", "VR5", "BR20", "换手率", "量比前一日"], ascending=[False, False, False, False, False, False, False])
     selected_df = result_df[result_df["硬过滤是否通过"] == "是"].copy()
     candidate_df = result_df[result_df["分层标签"] == "候选"].copy()
     watch_df = result_df[result_df["分层标签"] == "观察"].copy()
-    result_df = result_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
+    result_df = result_df.drop(columns=["_硬过滤排序值", "_标签排序值", "_research_mainline_sort", "_research_pool_sort", "_research_recent_sort_bias", "_research_win_rate_sort", "_label_rank_sort"])
     if not selected_df.empty:
-        selected_df = selected_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
+        selected_df = selected_df.drop(columns=["_硬过滤排序值", "_标签排序值", "_research_mainline_sort", "_research_pool_sort", "_research_recent_sort_bias", "_research_win_rate_sort", "_label_rank_sort"])
     if not candidate_df.empty:
-        candidate_df = candidate_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
+        candidate_df = candidate_df.drop(columns=["_硬过滤排序值", "_标签排序值", "_research_mainline_sort", "_research_pool_sort", "_research_recent_sort_bias", "_research_win_rate_sort", "_label_rank_sort"])
     if not watch_df.empty:
-        watch_df = watch_df.drop(columns=["_硬过滤排序值", "_标签排序值"])
+        watch_df = watch_df.drop(columns=["_硬过滤排序值", "_标签排序值", "_research_mainline_sort", "_research_pool_sort", "_research_recent_sort_bias", "_research_win_rate_sort", "_label_rank_sort"])
 
 for frame_name in ["result_df", "selected_df", "candidate_df", "watch_df"]:
     current_df = locals().get(frame_name)

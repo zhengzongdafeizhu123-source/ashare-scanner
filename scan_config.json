@@ -34,5 +34,47 @@
       "range_vol_min": 0.666,
       "range_vol_max": 1.05
     }
+  },
+  "research_mainline_v1": {
+    "enabled": true,
+    "default_exit_bias": "d2_close",
+    "families": {
+      "hardpass_high_score": {
+        "enabled": true,
+        "priority": 400,
+        "pool_bucket": "主线",
+        "win_rate": 0.512
+      },
+      "hardpass_space_turnover": {
+        "enabled": true,
+        "priority": 300,
+        "pool_bucket": "主线",
+        "win_rate": 0.493
+      },
+      "hardpass_core": {
+        "enabled": true,
+        "priority": 200,
+        "pool_bucket": "主线",
+        "win_rate": 0.477
+      },
+      "candidate_continuation": {
+        "enabled": true,
+        "priority": 100,
+        "pool_bucket": "主线",
+        "win_rate": 0.459
+      },
+      "candidate_secondary_core": {
+        "enabled": true,
+        "priority": 90,
+        "pool_bucket": "副池",
+        "win_rate": 0.451
+      },
+      "watch_repair": {
+        "enabled": false,
+        "priority": 10,
+        "pool_bucket": "其他",
+        "win_rate": 0.0
+      }
+    }
   }
 }

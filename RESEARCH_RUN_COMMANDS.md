@@ -175,6 +175,76 @@ python p13_validate_d0_d1_d2_trade_templates.py --dataset "C:\Users\wseba\OneDri
 python p13_validate_d0_d1_d2_trade_templates.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hardonly.json
 ```
 
+## P14 Pattern Families And Time-Split
+
+主力 dataset + `hard_pass_or_watch`：
+
+```powershell
+python p14_discover_pattern_families.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json
+```
+
+主力 dataset + `candidate_or_watch`：
+
+```powershell
+python p14_discover_pattern_families.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.cow.json
+```
+
+主力 dataset + `hard_pass_only`：
+
+```powershell
+python p14_discover_pattern_families.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hardonly.json
+```
+
+长窗口压力测试：
+
+```powershell
+python p14_discover_pattern_families.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260331_203044.parquet" --research-config research_config.p12.hpow.json
+```
+
+说明：
+
+- `P14` 现在是慢变量主研究。
+- 核心用途是：
+  - family discovery
+  - time-split validation
+  - mainline freezing
+
+## P15 Success-Failure Postmortem
+
+全样本过滤后研究：
+
+```powershell
+python p15_analyze_success_failure_pools.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json --output-dir tmp_p15_outputs
+```
+
+最近 shortlist 复盘研究：
+
+```powershell
+python p15_analyze_success_failure_pools.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json --scope recent_top_ranked_subset --recent-setup-days 40 --top-n-per-day 20 --output-dir tmp_p15_recent_outputs
+```
+
+如果想看别的出口模板：
+
+```powershell
+python p15_analyze_success_failure_pools.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json --scope recent_top_ranked_subset --recent-setup-days 40 --top-n-per-day 20 --entry-template d1_breakout_buy --exit-template d2_open_exit --output-dir tmp_p15_recent_outputs
+```
+
+说明：
+
+- `P15` 现在更推荐用 `recent_top_ranked_subset`。
+- 这个模式不是重做整库 feasibility。
+- 它是专门看：
+  - 最近窗口
+  - 每天前 `N` 个 shortlist
+  - 后续为什么成功 / 失败 / 根本没触发 breakout
+- 当前最值得盯的输出：
+  - `p15_outcome_summary_*.csv`
+  - `p15_group_summary_*.csv`
+  - `p15_breakout_reversal_summary_*.csv`
+  - `p15_breakout_reversal_subtype_summary_*.csv`
+  - `p15_recent_failure_slice_summary_*.csv`
+  - `p15_success_failure_report_*.md`
+
 ## 最常用整套命令
 
 主力 dataset + `hard_pass_or_watch`：
