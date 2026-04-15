@@ -87,6 +87,7 @@ COLUMN_WIDTHS = {
     "分层标签": 78,
     "硬过滤是否通过": 96,
 }
+RESULT_COLUMN_LABELS = {}
 SORTABLE_COLUMNS = ["股票代码", "股票名称", "日期", "涨跌幅%", "换手率", "量比前一日", "VR5", "BR20", "命中硬过滤数", "分层标签"]
 DEFAULT_ASCENDING_COLUMNS = {"股票代码", "股票名称", "日期", "分层标签"}
 WATCHLIST_COLUMNS = [
@@ -769,6 +770,7 @@ class GuiApp:
         }
         self.result_ui_vars = {
             "keyword": tk.StringVar(value=""),
+            "research_pool_filter": tk.StringVar(value="全部"),
             "label_filter": tk.StringVar(value="全部"),
             "hard_filter": tk.StringVar(value="全部"),
             "sort_by": tk.StringVar(value=self.result_sort_column),
@@ -969,10 +971,18 @@ class GuiApp:
         keyword_entry = ttk.Entry(toolbar1, textvariable=self.result_ui_vars["keyword"])
         keyword_entry.grid(row=0, column=1, sticky="ew", padx=(6, 10))
         keyword_entry.bind("<Return>", lambda _e: self.apply_result_filters())
-        ttk.Label(toolbar1, text="标签").grid(row=0, column=2, sticky="w")
-        ttk.Combobox(toolbar1, textvariable=self.result_ui_vars["label_filter"], state="readonly", values=["全部", "候选", "观察", "放弃"], width=8).grid(row=0, column=3, padx=(6, 10), sticky="w")
-        ttk.Label(toolbar1, text="硬过滤").grid(row=0, column=4, sticky="w")
-        ttk.Combobox(toolbar1, textvariable=self.result_ui_vars["hard_filter"], state="readonly", values=["全部", "仅硬过滤通过", "仅硬过滤未通过"], width=14).grid(row=0, column=5, padx=(6, 10), sticky="w")
+        ttk.Label(toolbar1, text="研究池").grid(row=0, column=2, sticky="w")
+        ttk.Combobox(
+            toolbar1,
+            textvariable=self.result_ui_vars["research_pool_filter"],
+            state="readonly",
+            values=["全部", "主线+副池", "仅主线", "仅副池", "仅其他"],
+            width=10,
+        ).grid(row=0, column=3, padx=(6, 10), sticky="w")
+        ttk.Label(toolbar1, text="标签").grid(row=0, column=4, sticky="w")
+        ttk.Combobox(toolbar1, textvariable=self.result_ui_vars["label_filter"], state="readonly", values=["全部", "候选", "观察", "放弃"], width=8).grid(row=0, column=5, padx=(6, 10), sticky="w")
+        ttk.Label(toolbar1, text="硬过滤").grid(row=0, column=6, sticky="w")
+        ttk.Combobox(toolbar1, textvariable=self.result_ui_vars["hard_filter"], state="readonly", values=["全部", "仅硬过滤通过", "仅硬过滤未通过"], width=14).grid(row=0, column=7, padx=(6, 10), sticky="w")
 
         toolbar2 = ttk.Frame(frame)
         toolbar2.grid(row=1, column=0, sticky="ew", pady=(6, 0))
@@ -988,7 +998,7 @@ class GuiApp:
         ttk.Button(toolbar2, text="生成今日 Watchlist", command=self.run_build_watchlist).grid(row=0, column=6, padx=(0, 6), sticky="ew")
 
         ttk.Label(frame, textvariable=self.result_ui_vars["info"], justify="left", wraplength=1240).grid(row=2, column=0, sticky="ew", pady=(6, 2))
-        ttk.Label(frame, text="提示：入围=硬过滤通过；候选/观察=分层标签。入围与候选/观察不是互斥关系。", style="Small.TLabel", justify="left").grid(row=3, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(frame, text="提示：主线=当前研究最强路线；副池=在主线基础上适度放宽、用于保证 GUI 可用性的补充路线；入围与候选/观察不是互斥关系。", style="Small.TLabel", justify="left").grid(row=3, column=0, sticky="w", pady=(0, 4))
 
         self.result_paned = ttk.Panedwindow(frame, orient=tk.VERTICAL)
         self.result_paned.grid(row=4, column=0, sticky="nsew")
@@ -1039,9 +1049,10 @@ class GuiApp:
         if row is None:
             return "未选择任何结果。"
         preferred = [
-            "股票代码", "股票名称", "日期", "开盘", "收盘", "最高", "最低",
+            "股票代码", "股票名称", "日期", "research_pool_bucket", "research_mainline_priority", "research_mainline_family",
+            "开盘", "收盘", "最高", "最低",
             "涨跌幅%", "换手率", "量比前一日", "VR5", "BR20", "命中硬过滤数",
-            "分层标签", "硬过滤是否通过", "硬过滤未通过原因",
+            "breakout_price", "target_price_1", "分层标签", "硬过滤是否通过", "硬过滤未通过原因",
         ]
         cols = [c for c in preferred if c in row.index] + [c for c in row.index if c not in preferred]
         lines, current = [], []
@@ -1473,16 +1484,19 @@ class GuiApp:
             self.result_frames_view[key] = filtered
             self._render_result_table(key, filtered)
         source_name = Path(self.latest_result_files.get("results", "")).name or Path(self.latest_result_files.get("summary", "")).name or "未找到扫描文件"
+        research_pool_filter = self.result_ui_vars.get("research_pool_filter")
+        research_pool_text = research_pool_filter.get() if research_pool_filter is not None else "全部"
         self.result_ui_vars["info"].set(
             f"已加载最新扫描结果｜全部 {len(self.result_frames_view.get('results', pd.DataFrame()))} 行，入围 {len(self.result_frames_view.get('selected', pd.DataFrame()))} 行，"
             f"候选 {len(self.result_frames_view.get('candidate', pd.DataFrame()))} 行，观察 {len(self.result_frames_view.get('watch', pd.DataFrame()))} 行。"
-            f" 当前排序：{self.result_sort_column}（{'升序' if self.result_sort_ascending else '降序'}）。 来源：{source_name}"
+            f" 研究池筛选：{research_pool_text}。当前排序：{self.result_sort_column}（{'升序' if self.result_sort_ascending else '降序'}）。 来源：{source_name}"
         )
         if not silent:
             self.append_log("[results] 已应用结果筛选与排序。", "summary")
 
     def reset_result_filters(self):
         self.result_ui_vars["keyword"].set("")
+        self.result_ui_vars["research_pool_filter"].set("全部")
         self.result_ui_vars["label_filter"].set("全部")
         self.result_ui_vars["hard_filter"].set("全部")
         self.result_sort_column = "VR5"
@@ -1535,7 +1549,7 @@ class GuiApp:
         self.result_columns_by_tab[tab_key] = list(columns)
         tree.configure(columns=columns, show="headings")
         for col in columns:
-            tree.heading(col, text=col, command=lambda c=col: self._sort_by_header(c))
+            tree.heading(col, text=RESULT_COLUMN_LABELS.get(col, col), command=lambda c=col: self._sort_by_header(c))
             anchor = "w" if col == "股票名称" else "center"
             tree.column(col, width=COLUMN_WIDTHS.get(col, 96), minwidth=70, stretch=False, anchor=anchor)
 
@@ -1727,16 +1741,24 @@ class GuiApp:
 
 # --- official D0 result view overrides ---
 
+RESEARCH_RESULT_SORT_KEY = "研究主线默认排序"
 OFFICIAL_RESULT_SORT_KEY = "正式D0默认排序"
 RESULT_DISPLAY_COLUMNS = [
     "股票代码",
     "股票名称",
     "日期",
+    "research_pool_bucket",
+    "research_mainline_priority",
+    "research_recent_sort_bias",
+    "research_mainline_family",
+    "d1_attention_tag",
+    "d2_attention_tag",
     "涨跌幅%",
     "换手率",
     "量比前一日",
     "VR5",
     "BR20",
+    "breakout_price",
     "official_d0_tier",
     "official_d0_score",
     "official_d0_flag",
@@ -1746,20 +1768,56 @@ RESULT_DISPLAY_COLUMNS = [
 ]
 COLUMN_WIDTHS = dict(
     COLUMN_WIDTHS,
+    research_pool_bucket=76,
+    research_mainline_priority=92,
+    research_recent_sort_bias=84,
+    research_mainline_family=168,
+    d1_attention_tag=176,
+    d2_attention_tag=160,
+    breakout_price=96,
     official_d0_tier=90,
     official_d0_score=94,
     official_d0_flag=96,
 )
+RESULT_COLUMN_LABELS = dict(
+    RESULT_COLUMN_LABELS,
+    research_pool_bucket="研究池",
+    research_mainline_priority="主线优先级",
+    research_mainline_family="研究家族",
+    breakout_price="突破线",
+    official_d0_tier="正式D0档位",
+    official_d0_score="正式D0分",
+    official_d0_flag="正式D0通过",
+)
+RESULT_COLUMN_LABELS.update(
+    {
+        "research_recent_sort_bias": "近期修正",
+        "d1_attention_tag": "D1注意",
+        "d2_attention_tag": "D2注意",
+        "research_recent_note": "近期说明",
+        "d1_attention_note": "D1说明",
+        "d2_attention_note": "D2说明",
+        "research_sort_note": "排序说明",
+        "research_trade_attention": "盘中注意事项",
+    }
+)
+
 SORTABLE_COLUMNS = [
+    RESEARCH_RESULT_SORT_KEY,
     OFFICIAL_RESULT_SORT_KEY,
     "股票代码",
     "股票名称",
     "日期",
+    "research_pool_bucket",
+    "research_mainline_priority",
+    "research_recent_sort_bias",
+    "research_mainline_family",
     "涨跌幅%",
     "换手率",
     "量比前一日",
     "VR5",
     "BR20",
+    "breakout_price",
     "official_d0_tier",
     "official_d0_score",
     "official_d0_flag",
@@ -1769,6 +1827,12 @@ SORTABLE_COLUMNS = [
 DEFAULT_ASCENDING_COLUMNS = set(DEFAULT_ASCENDING_COLUMNS) | {"official_d0_tier"}
 
 _ORIGINAL_GUIAPP_INIT = GuiApp.__init__
+
+
+def _series_or_default(df, column: str, default_value, pd_mod):
+    if column in df.columns:
+        return df[column]
+    return pd_mod.Series(default_value, index=df.index)
 
 
 def _sort_official_result_dataframe(self, df):
@@ -1782,16 +1846,44 @@ def _sort_official_result_dataframe(self, df):
     sort_df["__official_flag"] = sort_df["official_d0_flag"].astype(str).eq("是").astype(int)
     sort_df["__official_tier"] = sort_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
     sort_df["__official_score"] = pd_mod.to_numeric(sort_df["official_d0_score"], errors="coerce").fillna(-1)
+    sort_df["__label_rank"] = _series_or_default(sort_df, "分层标签", "", pd_mod).map({"候选": 0, "观察": 1, "放弃": 2}).fillna(9)
     sort_df["__br20"] = pd_mod.to_numeric(sort_df.get("BR20"), errors="coerce").fillna(-1)
     sort_df["__turnover"] = pd_mod.to_numeric(sort_df.get("换手率"), errors="coerce").fillna(-1)
     sort_df["__turnover_f"] = pd_mod.to_numeric(sort_df.get("d0_turnover_f"), errors="coerce").fillna(-1)
     secondary = "股票代码" if "股票代码" in sort_df.columns else sort_df.columns[0]
     sort_df = sort_df.sort_values(
-        by=["__official_flag", "__official_tier", "__official_score", "__br20", "__turnover", "__turnover_f", secondary],
-        ascending=[False, True, False, False, False, False, True],
+        by=["__official_flag", "__official_tier", "__official_score", "__label_rank", "__br20", "__turnover", "__turnover_f", secondary],
+        ascending=[False, True, False, True, False, False, False, True],
         na_position="last",
     )
-    return sort_df.drop(columns=["__official_flag", "__official_tier", "__official_score", "__br20", "__turnover", "__turnover_f"])
+    return sort_df.drop(columns=["__official_flag", "__official_tier", "__official_score", "__label_rank", "__br20", "__turnover", "__turnover_f"])
+
+
+def _sort_research_result_dataframe(self, df):
+    pd_mod, _ = _ensure_runtime_modules()
+    if df.empty:
+        return df
+    required_cols = {"research_mainline_priority", "official_d0_flag", "official_d0_tier", "official_d0_score"}
+    if not required_cols.issubset(df.columns):
+        return _sort_official_result_dataframe(self, df)
+    sort_df = df.copy()
+    sort_df["__pool_rank"] = _series_or_default(sort_df, "research_pool_bucket", "", pd_mod).map({"主线": 2, "副池": 1, "其他": 0}).fillna(0)
+    sort_df["__mainline_priority"] = pd_mod.to_numeric(sort_df["research_mainline_priority"], errors="coerce").fillna(0)
+    sort_df["__recent_sort_bias"] = pd_mod.to_numeric(_series_or_default(sort_df, "research_recent_sort_bias", 0, pd_mod), errors="coerce").fillna(0)
+    sort_df["__official_flag"] = sort_df["official_d0_flag"].astype(str).eq("是").astype(int)
+    sort_df["__official_tier"] = sort_df["official_d0_tier"].map({"A": 0, "B": 1, "C": 2}).fillna(9)
+    sort_df["__official_score"] = pd_mod.to_numeric(sort_df["official_d0_score"], errors="coerce").fillna(-1)
+    sort_df["__label_rank"] = _series_or_default(sort_df, "分层标签", "", pd_mod).map({"候选": 0, "观察": 1, "放弃": 2}).fillna(9)
+    sort_df["__br20"] = pd_mod.to_numeric(sort_df.get("BR20"), errors="coerce").fillna(-1)
+    sort_df["__turnover"] = pd_mod.to_numeric(sort_df.get("换手率"), errors="coerce").fillna(-1)
+    sort_df["__turnover_f"] = pd_mod.to_numeric(sort_df.get("d0_turnover_f"), errors="coerce").fillna(-1)
+    secondary = "股票代码" if "股票代码" in sort_df.columns else sort_df.columns[0]
+    sort_df = sort_df.sort_values(
+        by=["__pool_rank", "__mainline_priority", "__recent_sort_bias", "__official_flag", "__official_tier", "__official_score", "__label_rank", "__br20", "__turnover", "__turnover_f", secondary],
+        ascending=[False, False, False, False, True, False, True, False, False, False, True],
+        na_position="last",
+    )
+    return sort_df.drop(columns=["__pool_rank", "__mainline_priority", "__recent_sort_bias", "__official_flag", "__official_tier", "__official_score", "__label_rank", "__br20", "__turnover", "__turnover_f"])
 
 
 def _patched_get_filtered_result_frame(self, tab_key: str):
@@ -1802,7 +1894,7 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
     keyword = self.result_ui_vars["keyword"].get().strip().lower()
     if keyword:
         masks = []
-        for col in ["股票代码", "股票名称", "硬过滤未通过原因", "official_d0_hit_rules", "official_d0_miss_rules"]:
+        for col in ["股票代码", "股票名称", "research_pool_bucket", "research_mainline_family", "research_mainline_note", "research_recent_note", "research_sort_note", "d1_attention_tag", "d1_attention_note", "d2_attention_tag", "d2_attention_note", "research_trade_attention", "硬过滤未通过原因", "official_d0_hit_rules", "official_d0_miss_rules"]:
             if col in df.columns:
                 masks.append(df[col].astype(str).str.lower().str.contains(keyword, na=False))
         if masks:
@@ -1810,6 +1902,17 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
             for extra in masks[1:]:
                 mask = mask | extra
             df = df[mask].copy()
+    pool_filter_var = self.result_ui_vars.get("research_pool_filter")
+    pool_filter = pool_filter_var.get() if pool_filter_var is not None else "全部"
+    if pool_filter != "全部" and "research_pool_bucket" in df.columns:
+        if pool_filter == "主线+副池":
+            df = df[df["research_pool_bucket"].isin(["主线", "副池"])].copy()
+        elif pool_filter == "仅主线":
+            df = df[df["research_pool_bucket"] == "主线"].copy()
+        elif pool_filter == "仅副池":
+            df = df[df["research_pool_bucket"] == "副池"].copy()
+        elif pool_filter == "仅其他":
+            df = df[df["research_pool_bucket"] == "其他"].copy()
     label_filter = self.result_ui_vars["label_filter"].get()
     if label_filter != "全部" and "分层标签" in df.columns:
         df = df[df["分层标签"] == label_filter].copy()
@@ -1818,6 +1921,8 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
         df = df[df["硬过滤是否通过"] == "是"].copy()
     elif hard_filter == "仅硬过滤未通过" and "硬过滤是否通过" in df.columns:
         df = df[df["硬过滤是否通过"] != "是"].copy()
+    if self.result_sort_column == RESEARCH_RESULT_SORT_KEY:
+        return _sort_research_result_dataframe(self, df)
     if self.result_sort_column == OFFICIAL_RESULT_SORT_KEY:
         return _sort_official_result_dataframe(self, df)
     if self.result_sort_column in df.columns:
@@ -1827,9 +1932,10 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
 
 def _patched_reset_result_filters(self):
     self.result_ui_vars["keyword"].set("")
+    self.result_ui_vars["research_pool_filter"].set("全部")
     self.result_ui_vars["label_filter"].set("全部")
     self.result_ui_vars["hard_filter"].set("全部")
-    self.result_sort_column = OFFICIAL_RESULT_SORT_KEY
+    self.result_sort_column = RESEARCH_RESULT_SORT_KEY
     self.result_sort_ascending = False
     self.result_ui_vars["sort_by"].set(self.result_sort_column)
     self.result_ui_vars["sort_order"].set("降序")
@@ -1838,7 +1944,7 @@ def _patched_reset_result_filters(self):
 
 def _patched_guiapp_init(self, root):
     _ORIGINAL_GUIAPP_INIT(self, root)
-    self.result_sort_column = OFFICIAL_RESULT_SORT_KEY
+    self.result_sort_column = RESEARCH_RESULT_SORT_KEY
     self.result_sort_ascending = False
     if hasattr(self, "result_ui_vars"):
         self.result_ui_vars["sort_by"].set(self.result_sort_column)

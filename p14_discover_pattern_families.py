@@ -85,7 +85,10 @@ TODO_LINES = [
 ]
 
 FAMILY_DESCRIPTIONS = {
-    "family_hardpass_high_score": "Hard-pass high-score continuation family; strongest D0 quality bucket.",
+    "family_hardpass_high_score": "Hard-pass high-score continuation family; strongest and narrowest D0 quality bucket.",
+    "family_hardpass_core": "Hard-pass core family; broader hard-pass pool with score>=3, used to test whether the hard-pass base itself survives.",
+    "family_hardpass_space_turnover": "Hard-pass space-turnover family; hard-pass names with score>=3 plus good limit-up space and turnover.",
+    "family_candidate_secondary_core": "Relaxed secondary candidate family; candidate names with score>=3, strong br20 and turnover, but without requiring limit-up space.",
     "family_orderly_breakout": "Orderly breakout family; strong trend, good space, confirmed turnover, not overly crowded.",
     "family_crowded_momentum": "Crowded momentum family; strong trend close to limit-up with elevated turnover_f.",
     "family_repair_pullback": "Repair / pullback family; moderate trend, still in good space, seeks delayed or pullback entries.",
@@ -108,6 +111,15 @@ class PatternDiscoveryConfig:
     min_actual_to_expected_ratio: float
     min_return_retention_ratio: float
     pattern_thresholds: dict[str, float]
+
+
+@dataclass
+class ValidationLibrary:
+    name: str
+    df: pd.DataFrame
+    source_type: str
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -136,6 +148,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dataset", "--discovery-dataset", dest="discovery_dataset", required=True, help="Long-window P9 parquet path used as the discovery library")
     parser.add_argument("--validation-datasets", default="", help="Optional comma-separated P9 parquet paths used as validation libraries")
+    parser.add_argument("--time-split-validation", action="store_true", help="Split the discovery dataset into non-overlapping time windows for discovery/validation")
+    parser.add_argument("--time-split-ratios", default="0.7,0.15,0.15", help="Comma-separated ratios for time-split windows. First window is discovery, later windows are validation")
     parser.add_argument("--research-config", default="", help="Research config path, defaults to research_config.json")
     parser.add_argument("--output-dir", default="", help="Optional output directory, defaults to the discovery dataset directory")
     return parser.parse_args()
@@ -186,6 +200,22 @@ def parse_validation_dataset_paths(raw: str) -> list[Path]:
         return []
     parts = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
     return [Path(part) for part in parts]
+
+
+def parse_time_split_ratios(raw: str) -> list[float]:
+    parts = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    ratios: list[float] = []
+    for part in parts:
+        try:
+            value = float(part)
+        except ValueError as exc:
+            raise ValueError(f"Invalid time split ratio: {part}") from exc
+        if value <= 0:
+            raise ValueError(f"Time split ratios must be positive, got: {part}")
+        ratios.append(value)
+    if len(ratios) < 2:
+        raise ValueError("Time split validation requires at least two ratios, e.g. 0.7,0.15,0.15")
+    return ratios
 
 
 def apply_sample_filter(df: pd.DataFrame, name: str) -> pd.DataFrame:
@@ -529,8 +559,20 @@ def build_pattern_masks(df: pd.DataFrame, cfg: PatternDiscoveryConfig) -> dict[s
     families["family_hardpass_high_score"] = (
         hard_pass
         & (df["official_d0_score"] >= 4)
-        & (br20 >= t["strong_br20_min"])
+        & (br20 >= float(cfg.official_d0_logic_v2["thresholds"].get("br20_min", 1.02)))
         & df["cond_limit_up_space_good"]
+    )
+
+    families["family_hardpass_core"] = (
+        hard_pass
+        & (df["official_d0_score"] >= 3)
+    )
+
+    families["family_hardpass_space_turnover"] = (
+        hard_pass
+        & (df["official_d0_score"] >= 3)
+        & df["cond_limit_up_space_good"]
+        & df["cond_turnover_good"]
     )
 
     families["family_orderly_breakout"] = (
@@ -565,6 +607,13 @@ def build_pattern_masks(df: pd.DataFrame, cfg: PatternDiscoveryConfig) -> dict[s
         & df["cond_limit_up_space_good"]
     )
 
+    families["family_candidate_secondary_core"] = (
+        candidate
+        & (df["official_d0_score"] >= 3)
+        & (br20 >= float(cfg.official_d0_logic_v2["thresholds"].get("br20_min", 1.02)))
+        & df["cond_turnover_good"]
+    )
+
     families["family_watch_repair"] = (
         watch
         & (df["official_d0_score"] >= 3)
@@ -573,6 +622,12 @@ def build_pattern_masks(df: pd.DataFrame, cfg: PatternDiscoveryConfig) -> dict[s
     )
 
     return {name: mask.fillna(False).astype(bool) for name, mask in families.items()}
+
+
+def effective_shortlist_thresholds(total_count: int, cfg: PatternDiscoveryConfig) -> tuple[int, int]:
+    family_floor = min(cfg.min_family_sample_count, max(40, int(total_count * 0.08)))
+    executable_floor = min(cfg.min_executable_count, max(25, int(total_count * 0.04)))
+    return family_floor, executable_floor
 
 
 def build_family_summary_rows(df: pd.DataFrame, family_masks: dict[str, pd.Series]) -> list[dict[str, Any]]:
@@ -612,6 +667,7 @@ def build_route_summary_row(
     entry_template: str,
     exit_template: str,
     cfg: PatternDiscoveryConfig,
+    total_count: int,
 ) -> dict[str, Any]:
     sample_count = len(family_df)
     trigger_count = int(evaluated_df["entry_triggered_flag"].fillna(False).sum())
@@ -629,19 +685,20 @@ def build_route_summary_row(
     delayed_ratio = float(executable_df["path_class"].eq(PATH_CLASS_DELAYED).mean()) if executable_count else 0.0
     smooth_ratio = float(executable_df["path_class"].eq(PATH_CLASS_SMOOTH).mean()) if executable_count else 0.0
     friday_ratio = float(executable_df["is_friday_entry"].fillna(False).mean()) if executable_count else 0.0
+    min_family_sample_count, min_executable_count = effective_shortlist_thresholds(total_count, cfg)
 
     shortlisted = (
-        sample_count >= cfg.min_family_sample_count
-        and executable_count >= cfg.min_executable_count
+        sample_count >= min_family_sample_count
+        and executable_count >= min_executable_count
         and executable_ratio >= cfg.min_executable_ratio
         and (avg_realized or 0.0) >= cfg.min_avg_realized_ret_pct
         and win_rate >= cfg.min_win_rate
     )
 
     reasons: list[str] = []
-    if sample_count < cfg.min_family_sample_count:
+    if sample_count < min_family_sample_count:
         reasons.append("family_sample_too_small")
-    if executable_count < cfg.min_executable_count:
+    if executable_count < min_executable_count:
         reasons.append("exec_count_too_small")
     if executable_ratio < cfg.min_executable_ratio:
         reasons.append("exec_ratio_too_low")
@@ -656,11 +713,13 @@ def build_route_summary_row(
         "family_name": family_name,
         "family_description": FAMILY_DESCRIPTIONS.get(family_name, ""),
         "sample_count": sample_count,
+        "effective_min_family_sample_count": min_family_sample_count,
         "entry_template": entry_template,
         "exit_template": exit_template,
         "trigger_count": trigger_count,
         "trigger_ratio": rounded(trigger_ratio),
         "executable_count": executable_count,
+        "effective_min_executable_count": min_executable_count,
         "executable_ratio": rounded(executable_ratio),
         "avg_entry_ret_from_d0_close_pct": rounded(safe_mean(executable_df["entry_ret_from_d0_close_pct"])) if executable_count else None,
         "avg_realized_ret_pct": rounded(avg_realized),
@@ -679,6 +738,7 @@ def build_route_summary_row(
 def evaluate_routes_for_dataset(df: pd.DataFrame, family_masks: dict[str, pd.Series], cfg: PatternDiscoveryConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     family_summary_df = pd.DataFrame(build_family_summary_rows(df, family_masks))
     route_rows: list[dict[str, Any]] = []
+    total_count = len(df)
     for family_name, mask in family_masks.items():
         family_df = df[mask].copy()
         if family_df.empty:
@@ -689,7 +749,7 @@ def evaluate_routes_for_dataset(df: pd.DataFrame, family_masks: dict[str, pd.Ser
                 exit_df = evaluate_exit_template(family_df, entry_df, exit_template)
                 metrics_df = compute_trade_metrics(family_df, entry_df, exit_df)
                 evaluated_df = pd.concat([family_df.reset_index(drop=True), metrics_df.reset_index(drop=True)], axis=1)
-                route_rows.append(build_route_summary_row(family_name, family_df, evaluated_df, entry_template, exit_template, cfg))
+                route_rows.append(build_route_summary_row(family_name, family_df, evaluated_df, entry_template, exit_template, cfg, total_count))
     route_summary_df = pd.DataFrame(route_rows)
     if not route_summary_df.empty:
         route_summary_df = route_summary_df.sort_values(
@@ -712,8 +772,87 @@ def trading_day_count(df: pd.DataFrame) -> int:
     return int(len(setup_dates))
 
 
+def dataset_date_range(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    setup_dates = pd.to_datetime(df["setup_date"], errors="coerce").dropna().dt.normalize().sort_values()
+    if setup_dates.empty:
+        return None, None
+    return setup_dates.iloc[0].strftime("%Y-%m-%d"), setup_dates.iloc[-1].strftime("%Y-%m-%d")
+
+
+def allocate_window_sizes(total_days: int, ratios: list[float]) -> list[int]:
+    if total_days <= 0:
+        raise ValueError("Cannot allocate time-split windows with zero setup days")
+    window_count = len(ratios)
+    if total_days < window_count:
+        raise ValueError(f"Need at least {window_count} setup days for {window_count} time-split windows, got {total_days}")
+    ratio_sum = sum(ratios)
+    normalized = [ratio / ratio_sum for ratio in ratios]
+    floors = [int(total_days * ratio) for ratio in normalized]
+    counts = [max(1, value) for value in floors]
+    current_total = sum(counts)
+    if current_total > total_days:
+        overflow = current_total - total_days
+        for idx in sorted(range(window_count), key=lambda i: counts[i], reverse=True):
+            reducible = max(0, counts[idx] - 1)
+            take = min(reducible, overflow)
+            counts[idx] -= take
+            overflow -= take
+            if overflow == 0:
+                break
+    elif current_total < total_days:
+        remainders = [(total_days * normalized[idx]) - floors[idx] for idx in range(window_count)]
+        remaining = total_days - current_total
+        for idx in sorted(range(window_count), key=lambda i: remainders[i], reverse=True):
+            counts[idx] += 1
+            remaining -= 1
+            if remaining == 0:
+                break
+        if remaining > 0:
+            counts[-1] += remaining
+    return counts
+
+
+def build_time_split_windows(df: pd.DataFrame, ratios: list[float]) -> tuple[pd.DataFrame, list[ValidationLibrary], str]:
+    setup_dates = pd.to_datetime(df["setup_date"], errors="coerce").dt.normalize()
+    unique_dates = pd.Index(setup_dates.dropna().drop_duplicates().sort_values())
+    counts = allocate_window_sizes(len(unique_dates), ratios)
+
+    windows: list[pd.Index] = []
+    start = 0
+    for count in counts:
+        stop = start + count
+        windows.append(unique_dates[start:stop])
+        start = stop
+
+    discovery_dates = set(windows[0].to_list())
+    discovery_df = df[setup_dates.isin(discovery_dates)].copy()
+
+    validation_libraries: list[ValidationLibrary] = []
+    for idx, date_index in enumerate(windows[1:], start=1):
+        date_set = set(date_index.to_list())
+        sub = df[setup_dates.isin(date_set)].copy()
+        if sub.empty:
+            continue
+        start_date = date_index[0].strftime("%Y-%m-%d")
+        end_date = date_index[-1].strftime("%Y-%m-%d")
+        validation_libraries.append(
+            ValidationLibrary(
+                name=f"time_split_validation_{idx}",
+                df=sub,
+                source_type="time_split",
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+
+    discovery_start = windows[0][0].strftime("%Y-%m-%d")
+    discovery_end = windows[0][-1].strftime("%Y-%m-%d")
+    discovery_label = f"time_split_discovery ({discovery_start} -> {discovery_end})"
+    return discovery_df, validation_libraries, discovery_label
+
+
 def validation_row(
-    dataset_name: str,
+    library: ValidationLibrary,
     route_row: pd.Series,
     route_eval: pd.Series,
     discovery_days: int,
@@ -735,7 +874,10 @@ def validation_row(
         and (return_retention is None or return_retention >= cfg.min_return_retention_ratio)
     )
     return {
-        "validation_dataset": dataset_name,
+        "validation_dataset": library.name,
+        "validation_source_type": library.source_type,
+        "validation_start_date": library.start_date,
+        "validation_end_date": library.end_date,
         "family_name": str(route_row["family_name"]),
         "entry_template": str(route_row["entry_template"]),
         "exit_template": str(route_row["exit_template"]),
@@ -757,17 +899,36 @@ def validation_row(
 
 
 def evaluate_validation_datasets(
-    validation_paths: list[Path],
+    validation_libraries: list[ValidationLibrary],
     discovery_routes: pd.DataFrame,
     discovery_days: int,
     cfg: PatternDiscoveryConfig,
 ) -> pd.DataFrame:
     shortlisted = discovery_routes[discovery_routes["shortlist_flag"].fillna(False).astype(bool)].copy()
-    if shortlisted.empty or not validation_paths:
+    if shortlisted.empty or not validation_libraries:
         return pd.DataFrame()
 
     rows: list[dict[str, Any]] = []
-    for path in validation_paths:
+    for library in validation_libraries:
+        validation_work = library.df.copy()
+        if validation_work.empty:
+            continue
+        family_masks = build_pattern_masks(validation_work, cfg)
+        _, route_summary_df = evaluate_routes_for_dataset(validation_work, family_masks, cfg)
+        validation_days = trading_day_count(validation_work)
+        lookup = route_summary_df.set_index(["family_name", "entry_template", "exit_template"])
+        for _, route_row in shortlisted.iterrows():
+            key = (str(route_row["family_name"]), str(route_row["entry_template"]), str(route_row["exit_template"]))
+            if key not in lookup.index:
+                continue
+            route_eval = lookup.loc[key]
+            rows.append(validation_row(library, route_row, route_eval, discovery_days, validation_days, cfg))
+    return pd.DataFrame(rows)
+
+
+def load_external_validation_libraries(paths: list[Path], cfg: PatternDiscoveryConfig) -> list[ValidationLibrary]:
+    libraries: list[ValidationLibrary] = []
+    for path in paths:
         if not path.exists():
             raise FileNotFoundError(f"Validation dataset not found: {path}")
         df = pd.read_parquet(path)
@@ -778,17 +939,17 @@ def evaluate_validation_datasets(
         work = compute_official_d0_columns(filtered, cfg)
         work = add_calendar_fields(work)
         work["path_class"] = classify_path(work)
-        family_masks = build_pattern_masks(work, cfg)
-        _, route_summary_df = evaluate_routes_for_dataset(work, family_masks, cfg)
-        validation_days = trading_day_count(work)
-        lookup = route_summary_df.set_index(["family_name", "entry_template", "exit_template"])
-        for _, route_row in shortlisted.iterrows():
-            key = (str(route_row["family_name"]), str(route_row["entry_template"]), str(route_row["exit_template"]))
-            if key not in lookup.index:
-                continue
-            route_eval = lookup.loc[key]
-            rows.append(validation_row(path.name, route_row, route_eval, discovery_days, validation_days, cfg))
-    return pd.DataFrame(rows)
+        start_date, end_date = dataset_date_range(work)
+        libraries.append(
+            ValidationLibrary(
+                name=path.name,
+                df=work,
+                source_type="external_dataset",
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+    return libraries
 
 
 def markdown_table(df: pd.DataFrame, columns: list[str], limit: int | None = None) -> str:
@@ -802,7 +963,8 @@ def markdown_table(df: pd.DataFrame, columns: list[str], limit: int | None = Non
 
 def build_report(
     discovery_dataset: Path,
-    validation_paths: list[Path],
+    discovery_scope_label: str,
+    validation_libraries: list[ValidationLibrary],
     cfg: PatternDiscoveryConfig,
     family_summary_df: pd.DataFrame,
     route_summary_df: pd.DataFrame,
@@ -813,6 +975,14 @@ def build_report(
         ["avg_realized_ret_pct", "win_rate", "executable_count"],
         ascending=[False, False, False],
     )
+    validation_scope_text = (
+        ", ".join(
+            f"`{library.name}` ({library.start_date or '?'} -> {library.end_date or '?'}) [{library.source_type}]"
+            for library in validation_libraries
+        )
+        if validation_libraries
+        else "None"
+    )
 
     report_lines = [
         "# P14 Pattern Family Discovery",
@@ -820,8 +990,9 @@ def build_report(
         "## Run Scope",
         "",
         f"- Discovery dataset: `{discovery_dataset.name}`",
+        f"- Discovery scope: `{discovery_scope_label}`",
         f"- Sample filter: `{cfg.sample_filter}`",
-        f"- Validation datasets: {', '.join(f'`{path.name}`' for path in validation_paths) if validation_paths else 'None'}",
+        f"- Validation windows: {validation_scope_text}",
         f"- Discovery families: `{len(family_summary_df)}`",
         f"- Discovery routes: `{len(route_summary_df)}`",
         f"- Shortlisted routes: `{len(shortlisted)}`",
@@ -830,7 +1001,7 @@ def build_report(
         "",
         "- P14 is not trying to find one universal route.",
         "- It treats the long library as a discovery set for a small number of interpretable D0 pattern families.",
-        "- It then asks whether the strongest family-level routes still survive on shorter libraries.",
+        "- It then asks whether the strongest family-level routes still survive on non-overlapping later windows or on separate shorter libraries.",
         "",
         "## Pattern Families",
         "",
@@ -938,6 +1109,7 @@ def main() -> None:
         raise FileNotFoundError(f"Discovery dataset not found: {discovery_dataset}")
 
     validation_paths = parse_validation_dataset_paths(args.validation_datasets)
+    time_split_ratios = parse_time_split_ratios(args.time_split_ratios) if args.time_split_validation else []
     output_dir = Path(args.output_dir) if args.output_dir else discovery_dataset.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -951,10 +1123,19 @@ def main() -> None:
     work = add_calendar_fields(work)
     work["path_class"] = classify_path(work)
 
-    family_masks = build_pattern_masks(work, cfg)
-    family_summary_df, route_summary_df = evaluate_routes_for_dataset(work, family_masks, cfg)
-    discovery_days = trading_day_count(work)
-    validation_df = evaluate_validation_datasets(validation_paths, route_summary_df, discovery_days, cfg)
+    validation_libraries: list[ValidationLibrary] = []
+    discovery_work = work
+    discovery_scope_label = "full_discovery_dataset"
+    if args.time_split_validation:
+        discovery_work, split_libraries, discovery_scope_label = build_time_split_windows(work, time_split_ratios)
+        validation_libraries.extend(split_libraries)
+
+    validation_libraries.extend(load_external_validation_libraries(validation_paths, cfg))
+
+    family_masks = build_pattern_masks(discovery_work, cfg)
+    family_summary_df, route_summary_df = evaluate_routes_for_dataset(discovery_work, family_masks, cfg)
+    discovery_days = trading_day_count(discovery_work)
+    validation_df = evaluate_validation_datasets(validation_libraries, route_summary_df, discovery_days, cfg)
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     tag = derive_config_tag(research_config_path, cfg.sample_filter)
@@ -968,11 +1149,12 @@ def main() -> None:
     if not validation_df.empty:
         validation_df.to_csv(validation_path, index=False, encoding="utf-8-sig")
     report_path.write_text(
-        build_report(discovery_dataset, validation_paths, cfg, family_summary_df, route_summary_df, validation_df),
+        build_report(discovery_dataset, discovery_scope_label, validation_libraries, cfg, family_summary_df, route_summary_df, validation_df),
         encoding="utf-8",
     )
 
     print(f"Discovery dataset: {discovery_dataset}")
+    print(f"Discovery scope: {discovery_scope_label}")
     print(f"Sample filter: {cfg.sample_filter}")
     print(f"Family summary: {family_summary_path}")
     print(f"Route discovery: {route_summary_path}")

@@ -1,12 +1,227 @@
 # Research Progress And TODO
 
+## Handoff Snapshot
+
+### Document Role
+
+- This file is the long-form handoff log.
+- A new agent should read this file first when it needs:
+  - background
+  - current research questions
+  - what has already been done
+  - what is currently believed
+  - what should be done next
+- Companion docs:
+  - `CURRENT_RESEARCH_CHEATSHEET.md`: fast-read version
+  - `RESEARCH_RUN_COMMANDS.md`: runnable command reference
+
+### Background
+
+- The project is no longer trying to find one universal stock-picking route.
+- Research has converged into two layers:
+  - `P14`: slow-variable research
+  - `P15`: fast-variable postmortem research
+- `P14` is responsible for:
+  - discovering pattern families
+  - validating routes across longer windows
+  - time-split validation
+  - freezing the current mainlines
+- `P15` is responsible for:
+  - looking only at the recent window
+  - focusing on the actually surfaced shortlist
+  - explaining why recently good-looking names later failed
+  - finding stable failure-condition candidates
+
+### Core Problem Right Now
+
+- `P14` has already moved past simple D0-D1-D2 feasibility and is now about which routes survive time-split validation.
+- GUI has already started to consume research conclusions, so the practical problem is no longer only "what works historically".
+- The practical problem is now:
+  - how to map stable mainlines into GUI ranking
+  - how to keep GUI usable when the true mainline is too narrow
+  - how to explain recent shortlist failures without redoing old full-universe research
+
+### Current Working State
+
+- Current stable interpretation:
+  - there are at least two parallel mainlines, not one
+  - both mainlines currently center on `d1_breakout_buy`
+- Current `P14` mainlines:
+  - `family_candidate_continuation`
+  - `family_hardpass_high_score`
+  - `family_hardpass_space_turnover`
+  - `family_hardpass_core`
+- Current exit preference:
+  - default bias is `d2_close_exit`
+  - `candidate` line still keeps `d2_open_exit` as comparison, not yet deleted
+- Current GUI mapping:
+  - mainline first
+  - secondary pool as usability supplement
+  - other names still retained as lower-priority reference
+- Current GUI ranking should now be understood as:
+  - `P14` mainline skeleton first
+  - then a very light `P15` recent-sort adjustment
+  - then the usual D0 structural ordering
+- The current `P15` integration is intentionally bounded:
+  - it must not overturn the `P14` mainline layer
+  - it is mainly used to improve readability and actionability
+  - recent findings that depend on future information are exposed as `D1/D2` attention notes, not as ex-ante weights
+- The scan / GUI layer now explicitly carries:
+  - `research_recent_sort_bias`
+  - `d1_attention_tag`
+  - `d2_attention_tag`
+  - longer note fields such as:
+    - `research_recent_note`
+    - `d1_attention_note`
+    - `d2_attention_note`
+    - `research_trade_attention`
+- Current confirmed GUI secondary pool:
+  - `candidate_secondary_core`
+  - it is not a new trading mainline
+  - it only relaxes one condition on top of `candidate_continuation`
+  - keep: `候选`, `official_d0_flag=是`, `score>=3`, `BR20>=1.02`
+  - relax: no longer require `limit_up_space`
+  - bridge with: `turnover>=9.67`
+
+### Work Done
+
+- `P13`
+  - D0-D1-D2 template validation was corrected to be consistent with A-share `T+1`
+  - main research answer now keeps `D1` buy and `D2` exit only
+- `P14`
+  - pattern family discovery is working
+  - time-split validation inside the same long dataset is working
+  - first batch of time-split survivors has already been identified
+  - `candidate` and `hardpass` are now treated as separate mainlines
+- GUI / scan mapping
+  - scan output now carries research-family / pool / priority style fields
+  - GUI now supports research-aware sorting and pool filtering
+  - GUI keeps both mainline and secondary-pool views
+- `P15`
+  - a first postmortem script now exists: `p15_analyze_success_failure_pools.py`
+  - it supports:
+    - `full_filtered_universe`
+    - `recent_top_ranked_subset`
+  - current default interpretation should be the recent-top-ranked mode, not the full-universe mode
+  - current recent-top-ranked study is:
+    - recent `setup_date` window
+    - top `N` names per day under current research ranking
+    - route fixed to `d1_breakout_buy + d2_close_exit`
+  - latest practical finding:
+    - intraday breakout followed by `D1` close back below breakout is a strong failure signal
+
+### Most Recent P15 Finding
+
+- The current `P15` definition of breakout reversal is:
+  - `d1_high >= breakout_price`
+  - `d1_close < breakout_price`
+- It means:
+  - breakout was touched intraday
+  - but `D1` failed to close above the breakout line
+- It does not mean:
+  - any generic intraday pullback
+  - any second-day fade
+  - any minute-level "spike then dump" pattern
+- In the recent-top-ranked shortlist research, this is currently one of the clearest failure clusters.
+- `P15` has now been extended with two more explanatory layers:
+  - `breakout reversal subtype` buckets
+  - `recent failure slice` summaries by family / weekday / rank band
+- GUI-facing application rule:
+  - future-information findings such as `breakout reversal` are not fed back as direct D0 ranking weights
+  - instead they are summarized into `D1/D2` attention notes
+  - only family-level recent actionability drift gets a small bounded sort adjustment
+- Current working interpretation from the latest recent-top-ranked run:
+  - `reversal_near_line` is still bad, but materially less bad than deeper reversal types
+  - `reversal_weak_close` and `reversal_deep_flush` are both strong failure clusters
+  - the recent shortlist does not fail in a perfectly linear "higher rank = safer" way
+  - `06_10` rank band recently looks weaker than `11_15`
+  - `candidate_secondary_core` is not obviously worse than `candidate_continuation` after execution, but it shows a clearly higher untriggered ratio
+
+### Latest P15 Output Set
+
+- `p15_breakout_reversal_summary_*.csv`
+  - reversal vs non-reversal comparison
+- `p15_breakout_reversal_subtype_summary_*.csv`
+  - deeper split of reversal samples
+- `p15_recent_failure_slice_summary_*.csv`
+  - recent failure slices by:
+    - `p15_pool_bucket`
+    - `p15_primary_family`
+    - `weekday_d1`
+    - `postmortem_rank_band`
+
+### Immediate Next TODO
+
+1. Keep `P14` focused on frozen mainlines and time-split stability instead of expanding more families.
+2. Keep `P15` focused on recent top-ranked shortlist postmortem instead of redoing full-universe feasibility work.
+3. Deepen `P15` around:
+   - whether `reversal_near_line` should stay as warning-only while deeper reversal types become stronger caution tags
+   - family-level recent drift
+   - rank-band drift
+   - weekday / gap / volatility context if needed
+4. Only after a failure condition survives repeated validation should it be fed back into GUI warning labels or filters.
+
+### Working Rule For New Agents
+
+- Do not treat `P15` as a replacement for `P14`.
+- Do not let short-window `P15` findings rewrite the mainline too quickly.
+- Treat the current system as:
+  - `P14` = what is stable enough to trust
+  - `P15` = why recent front-ranked names still failed
+- If unsure which direction to continue:
+  - first read `CURRENT_RESEARCH_CHEATSHEET.md`
+  - then use this file
+  - then run commands from `RESEARCH_RUN_COMMANDS.md`
+
 ## Latest Status
 
 ### As Of
 
-- `2026-04-14`
+- `2026-04-15`
 
 ### Latest Progress
+
+#### Newest Time-Split Progress
+
+- `P14` 已新增“同一长库内部 time-split validation”能力：
+  - 同一长库可按 `setup_date` 切成 discovery / validation A / validation B
+  - 当前已用最长库完成一轮真正不重叠的时间切分验证
+- 本轮 time-split 使用的窗口为：
+  - discovery：`2024-05-22 -> 2025-09-01`
+  - validation_1：`2025-09-02 -> 2025-12-12`
+  - validation_2：`2025-12-15 -> 2026-03-27`
+- 已完成三套 `sample_filter` 的 time-split 正式运行：
+  - `hard_pass_or_watch`
+  - `candidate_or_watch`
+  - `hard_pass_only`
+- 当前最清楚的新信息是：
+  - `hpow` 和 `cow` 在这轮 time-split 里几乎给出同一套主结论
+  - 真正的结构分化来自 `hardonly`
+  - `candidate` 主线在真正不重叠时间窗口里仍然能活
+  - `hardpass` 主线在 `hardonly` 下被更明确地确认下来
+
+#### Newest GUI-Mapping Progress
+
+- 已开始把当前 research 主线正式映射进扫描结果与 GUI：
+  - 扫描结果已新增 `research_mainline_family`
+  - 扫描结果已新增 `research_mainline_priority`
+  - GUI 已开始按“研究主线默认排序”优先展示
+- 当前 GUI 承接方式已明确为：
+  - 主线优先
+  - 副池补充
+  - 其他结果继续保留
+- 当前确认下来的副池定义为：
+  - `candidate_secondary_core`
+  - 它不是新的正式交易主线
+  - 它是在 `candidate_continuation` 的基础上，只放宽一个条件得到的 GUI 补充池
+- 当前确认保留的条件为：
+  - `候选`
+  - `official_d0_flag = 是`
+  - `score >= 3`
+  - `BR20 >= 1.02`
+- 当前确认放宽的条件为：
+  - 不再强制 `limit_up_space` 合格
+  - 改用 `turnover >= 9.67` 承接
 
 - `P13` 主结果已经修正为严格符合 A 股现货 `T+1`：
   - 主结果只保留 `D1` 买入、`D2` 卖出
@@ -26,8 +241,31 @@
   - 已能在最长库上发现可解释的 `pattern family`
   - 已能把长库 discovery 结果拿到较短库做 validation
   - 当前第一批跨窗口存活的 family 已经出现，不再只是停留在方法论阶段
+- `P14` 已完成第二轮 family 迭代：
+  - 新增并放宽了 `hard_pass` 专属 family
+  - shortlist 门槛已改为“默认保守，但对窄口径自适应”
+  - `hardonly` 已不再被 family 定义和门槛双重压扁
+- 已完成一轮 `D2 open vs D2 close` 对照观察：
+  - `candidate` 主线里，`D2 open` 与 `D2 close` 都存活，但短库验证里 `D2 close` 当前更强
+  - `hardpass` 主线里，`D2 close` 明显优于 `D2 open`
 
 ### Current Working Conclusions
+
+#### Newest Time-Split Conclusions
+
+- 当前 `P14` 的 time-split 结果表明：
+  - `family_candidate_continuation + d1_breakout_buy + d2_open_exit` 在两个后续时间窗口都存活
+  - `family_candidate_continuation + d1_breakout_buy + d2_close_exit` 在两个后续时间窗口也都存活，而且后段表现更强
+  - `family_watch_repair + d1_breakout_buy + d2_close_exit` 只过了一段，暂时只能算 exploratory
+- `hardonly` 的 time-split 结果进一步确认了 3 条 `hardpass` 主线：
+  - `family_hardpass_high_score`
+  - `family_hardpass_space_turnover`
+  - `family_hardpass_core`
+- 当前最清楚的阶段性判断已经变成：
+  - `candidate` 主线和 `hardpass` 主线应该分开理解，不应继续混成一个统一 shortlist
+  - 这两条主线都以 `d1_breakout_buy` 为核心买点
+  - `candidate` 主线里 `d2_open / d2_close` 都还活着，但当前 time-split 更偏 `d2_close`
+  - `hardpass` 主线里 `d2_close` 比 `d2_open` 更稳定、更像默认方向
 
 - `score >= 3` 仍然可以视为当前正式 D0 主池阈值。
 - `score >= 4` 更强，但明显更窄。
@@ -38,7 +276,21 @@
   - `family_candidate_continuation`
   - `d1_breakout_buy`
   - `d2_open_exit / d2_close_exit`
-- 当前 `hardonly` 不是失效，而是 `P14` 这版 family 定义对它切得太窄，导致样本太少、没有进入 validation。
+- 当前 `P14` 第二轮结果进一步表明：
+  - `hardonly` 不是失效，而是第一版 family 定义切得太窄
+  - 第二版里 `hardonly` 已经跑出多条跨窗口存活 route
+  - 当前最有代表性的 `hardonly` family 包括：
+    - `family_hardpass_high_score`
+    - `family_hardpass_core`
+    - `family_hardpass_space_turnover`
+- 当前最清楚的 `D2` 结论是：
+  - `candidate` 主线当前不必急着删掉 `D2 open`
+  - 但 `candidate` 两个短库验证里，`D2 close` 已明显优于 `D2 open`
+  - `hardpass` 主线里，`D2 close` 从 discovery 到 validation 都更强
+- 当前 GUI 承接层次应临时理解为：
+  - `hardpass` 主线 + `candidate_continuation` 主线，属于优先展示层
+  - `candidate_secondary_core` 属于副池补充层
+  - 副池的作用是保证 GUI 可用性，而不是单独上升为正式交易主线
 
 ### Current Biggest Risks
 
@@ -46,11 +298,19 @@
 - `hpow / cow` 在长窗口下整体仍然偏脏，不能把 pool 本身直接当成可交易池。
 - `D2 open` 与 `D2 close` 现在都值得继续验证，当前还不能只保留其中一种。
 - event / noise / 极端样本 仍未正式纳入。
-- `P14` 当前 family 定义仍然偏向宽样本 candidate 路线，对 `hardonly` 的承载能力不足。
+- `P14` 现在虽然已经把 `hardonly` 纳入，但 `hpow` 口径里 hard-pass family 仍然会被宽口径 shortlist 门槛压制，后续仍需考虑是否对“高质量窄 family”单独分层。
+- `candidate` 主线与 `hardpass` 主线当前更像两条并行主线，后续若继续混成一个统一 shortlist，容易把结论重新搅混。
+- GUI 若把副池和主线混读，也容易把“研究主线”与“可用性补充池”重新搅混。
 
 ## Current TODO
 
 ### Priority 1
+
+#### Priority 1A: Make Time-Split The Default Validation Lens
+
+- 现在已经不只是“长库 discovery + 短库快照验证”
+- 接下来应把“长库内部真正 time-split 验证”作为主验证口径
+- 外部较短 parquet 的验证结果继续保留，但降级为辅助对照口径
 
 固定“长库先发现、短库再验证”的 research 顺序。
 
@@ -62,12 +322,29 @@
 
 ### Priority 2
 
+#### Priority 2A: Freeze The First Time-Split Survivors
+
+- 当前 time-split 版本下，优先保留的 family / route 为：
+  - `family_candidate_continuation + d1_breakout_buy + d2_close_exit`
+  - `family_candidate_continuation + d1_breakout_buy + d2_open_exit`
+  - `family_hardpass_high_score + d1_breakout_buy + d2_close_exit`
+  - `family_hardpass_space_turnover + d1_breakout_buy + d2_close_exit`
+  - `family_hardpass_core + d1_breakout_buy + d2_close_exit`
+- 先不要继续扩 family，先围绕这几条主线做下一轮判断
+- GUI 层当前允许临时承接 1 条副池：
+  - `candidate_secondary_core`
+  - 只允许在 `candidate_continuation` 基础上放宽一个条件
+  - 当前确认放宽的是 `limit_up_space`
+
 基于 `P14` 当前结果，先固定第一批跨窗口存活 family，再进入 family 迭代阶段。
 
 当前已经可以视作第一批存活 family / route 的方向包括：
 
 - `family_candidate_continuation + d1_breakout_buy + d2_open_exit`
 - `family_candidate_continuation + d1_breakout_buy + d2_close_exit`
+- `family_hardpass_high_score + d1_breakout_buy + d2_close_exit`
+- `family_hardpass_space_turnover + d1_breakout_buy + d2_close_exit`
+- `family_hardpass_core + d1_breakout_buy + d2_close_exit`
 
 它们当前同时满足：
 
@@ -80,9 +357,12 @@
 
 把下一轮 `P14` 迭代重点集中到：
 
-- 调整 family 定义，让 `hardonly` 不再只剩极少量样本
-- 让 `hard_pass` 质量底座能在 family discovery 层真正体现出来
-- 避免 family 只偏向 candidate continuation 一条线
+- 继续比较 `candidate` 系 family 和 `hardpass` 系 family 是否应该分成两条主线，而不是混成一个统一 shortlist
+- 评估 `hpow` 口径下是否应允许“小而强”的 hard-pass family 进入单独榜单
+- 当前先保留 3 个 hard-pass 主 family：
+  - `family_hardpass_high_score`
+  - `family_hardpass_core`
+  - `family_hardpass_space_turnover`
 
 ### Priority 4
 
@@ -96,12 +376,60 @@
 - 宽口径下是否更适合 `D2 open`
 - 强净化子集下是否更适合 `D2 close`
 - 这两类 exit 在不同时间段里是否发生明显漂移
+- 当前临时工作假设：
+  - `candidate` 主线：`D2 open` 保留，`D2 close` 暂时优先
+  - `hardpass` 主线：优先继续围绕 `D2 close`
 
 ### Priority 5
 
-把 delayed payoff 正式拆成支线研究，不再和 breakout 主线混在一起给主结论。
+把 `P15` 失效条件研究正式提前到主线附近来做，先回答：
+
+- 同样通过 `观察 / 候选 / score>=3 / hard_pass` 的票
+- 为什么有些 `D1 breakout -> D2 exit` 能走通
+- 为什么有些会在同样框架下失败
+
+当前建议把这条线定义成：
+
+- 成功池：
+  - `D1 breakout` 已触发且可成交
+  - `D2` 按当前 exit 模板退出后为正收益
+- 失败池：
+  - `D1 breakout` 已触发且可成交
+  - `D2` 按当前 exit 模板退出后为负收益
+- 未成交流：
+  - 不触发 breakout
+  - 或无法执行
+  - 暂时不和失败池混在一起
+
+当前建议先比较的不是新因子，而是：
+
+- D0 结构差异：
+  - `official_d0_score`
+  - `BR20`
+  - `d0_limit_up_space_pct`
+  - `d0_turnover`
+  - `d0_turnover_f`
+  - `d0_range_vol`
+- family / pool 差异：
+  - `candidate_continuation`
+  - `candidate_secondary_core`
+  - `hardpass_high_score`
+  - `hardpass_space_turnover`
+  - `hardpass_core`
+- D1 行为差异：
+  - 盘中触线后是否快速回落
+  - 收盘是否站上 breakout
+  - 触发后回撤是否更深
+
+这条线的目标不是“自动改规则”，而是：
+
+- 先做可解释的成功池 / 失败池对照
+- 先找到稳定的失效条件候选
+- 通过 time-split 后，再决定是否把极少数结论反灌回 GUI 提示或筛选逻辑
 
 ### Priority 6
+
+把 delayed payoff 正式拆成支线研究，不再和 breakout 主线混在一起给主结论。
 
 在完成时间稳定性验证后，再少量引入：
 
@@ -235,6 +563,106 @@
 
 ## Iteration Log
 
+### 2026-04-15 | Success-Pool Vs Failure-Pool Research Direction
+
+- 已明确下一条值得推进的 research 线，不是盲目再加新因子，而是：
+  - 在已通过当前筛选的样本里
+  - 比较成功池与失败池的结构差异
+- 当前更合理的样本切法是：
+  - 成功池：`D1 breakout` 触发且可成交，`D2` 退出为正
+  - 失败池：`D1 breakout` 触发且可成交，`D2` 退出为负
+  - 未成交流：未触发或不可执行，暂不并入失败池
+- 当前已经明确这条线的定位：
+  - 它不是“让程序自己自动发明新规则”
+  - 而是先做失效条件研究
+  - 先找解释性差异，再决定是否少量反灌到 GUI 或筛选逻辑
+- 已新建首版脚本：
+  - [p15_analyze_success_failure_pools.py](/w:/AshareScanner/project/p15_analyze_success_failure_pools.py)
+- 当前脚本默认已切到：
+  - `recent_top_ranked_subset`
+  - 最近 `setup_date` 窗口
+  - 每日按当前 research 排序取前 `N`
+  - 再做 `d1_breakout_buy + d2_close_exit` 复盘
+- 首版输出包括：
+  - `scope_subset_details`
+  - `success_pool_details`
+  - `failure_pool_details`
+  - `nontrade_pool_details`
+  - `outcome_summary`
+  - `numeric_feature_comparison`
+  - `categorical_feature_comparison`
+  - `group_summary`
+  - `daily_postmortem_summary`
+
+### 2026-04-15 | GUI Mainline And Secondary-Pool Mapping
+
+- 已开始把 research 主线映射进扫描结果与 GUI 排序：
+  - 主线结果优先展示
+  - 副池结果作为可用性补充
+- 当前确认的 GUI 副池只有 1 条：
+  - `candidate_secondary_core`
+- 当前已确认这条副池的工作原则：
+  - 它不是新的交易主线
+  - 它只是在 `candidate_continuation` 的基础上放宽 1 个条件
+  - 当前放宽的是 `limit_up_space`
+  - 保留的主干条件仍然是：
+    - `候选`
+    - `official_d0_flag = 是`
+    - `score >= 3`
+    - `BR20 >= 1.02`
+  - 当前承接条件是：
+    - `turnover >= 9.67`
+- 当前阶段性理解已经变成：
+  - 主线负责“优先展示真正最像研究主答案的对象”
+  - 副池负责“在不明显背离研究结论的前提下，保证 GUI 日常可用性”
+  - 后续若副池继续扩宽，必须继续坚持“只放宽一个条件”的原则，避免重新把研究口径放散
+
+### 2026-04-14 | P14 Time-Split Validation
+
+- 已为 `P14` 新增长库内部 `time-split validation` 能力：
+  - 同一长库按 `setup_date` 切成 discovery / validation A / validation B
+  - 当前测试比例：`0.7 / 0.15 / 0.15`
+- 已完成三套 `sample_filter` 的正式运行：
+  - `hard_pass_or_watch`
+  - `candidate_or_watch`
+  - `hard_pass_only`
+- 本轮最关键的横向结论：
+  - `hpow` 与 `cow` 结果几乎一致，说明这一步真正提供信息的是 `candidate` 线
+  - `hardonly` 则清晰跑出了独立的 `hardpass` 主线
+- `candidate` 主线当前 time-split 结果：
+  - `family_candidate_continuation + d1_breakout_buy + d2_open_exit`
+    - discovery：`3.04%`
+    - validation：`2.38% / 2.59%`
+  - `family_candidate_continuation + d1_breakout_buy + d2_close_exit`
+    - discovery：`1.97%`
+    - validation：`3.05% / 3.37%`
+  - 说明：
+    - `D2 open` 仍然活着
+    - 但在真正 time-split 的后续窗口里，`D2 close` 现在更强
+- `watch_repair` 当前结论：
+  - `family_watch_repair + d1_breakout_buy + d2_close_exit`
+    - discovery：`1.34%`
+    - validation：`0.14% / 0.90%`
+  - 只过了一段，暂时降级为 exploratory
+- `hardonly` 当前结论：
+  - `family_hardpass_high_score + breakout + d2_close`
+    - discovery：`2.71%`
+    - validation：`5.74% / 1.40%`
+  - `family_hardpass_space_turnover + breakout + d2_close`
+    - discovery：`2.40%`
+    - validation：`5.05% / 1.54%`
+  - `family_hardpass_core + breakout + d2_close`
+    - discovery：`1.71%`
+    - validation：`4.75% / 0.54%`
+  - 说明：
+    - `hardpass` 线确实是一条单独主线
+    - 而且目前仍更偏 `D2 close`
+- 当前阶段性工作假设进一步收敛为：
+  - 主线 1：`candidate_continuation + breakout + D2 close`
+  - 主线 2：`hardpass_high_score / space_turnover / core + breakout + D2 close`
+  - `candidate + D2 open` 继续保留为并行比较线
+  - `watch_repair` 暂不进入默认主结论
+
 ### 2026-04-14 | First P14 Discovery And Validation
 
 - 已完成第一版 [p14_discover_pattern_families.py](/w:/AshareScanner/project/p14_discover_pattern_families.py)
@@ -255,6 +683,43 @@
   - 长库 discovery -> 短库 validation 这条流程已经真正跑通
   - `pattern family` 方向不是空想，已经能跑出跨窗口存活路线
   - 下一步最该做的是调整 family 定义，让 `hard_pass` 底座在 `P14` 里也能被更好承载
+
+### 2026-04-14 | P14 Hard-Pass Family Expansion
+
+- 已对 `P14` 做第二轮迭代：
+  - 新增 `hard_pass` 专属 family
+  - 新增自适应 shortlist 门槛
+- 第二轮结果表明：
+  - `candidate_continuation` 主线仍然成立
+  - `hardonly` 也已正式跑出多条跨窗口存活路线
+- 当前最清楚的 hard-pass 结果是：
+  - `family_hardpass_high_score + breakout + d2_close`
+  - `family_hardpass_space_turnover + breakout + d2_close`
+  - `family_hardpass_breakout_core + breakout + d2_close`
+  - `family_hardpass_orderly_lowvol + breakout + d2_close`
+- 这说明：
+  - `P14` 现在不再只会发现 candidate 线
+  - `hard_pass` 质量底座已经能被 pattern family 体系承接
+  - 下一步重点应转向 family 去重、主线分层，以及 `D2 open / D2 close` 的场景化比较
+
+### 2026-04-14 | P14 D2 Open Vs D2 Close Check
+
+- 已完成当前主线上的 `D2 open` 与 `D2 close` 对照：
+  - `candidate` 主线：
+    - discovery：`D2 open = 2.90%`，`D2 close = 2.29%`
+    - 但短库验证：`D2 close = 3.02% / 3.21%`，已高于 `D2 open = 2.23% / 2.39%`
+  - `hardpass_high_score`：
+    - discovery：`D2 close = 3.04%`，`D2 open = 2.45%`
+    - validation：`D2 close = 3.30% / 2.91%`，仍高于 `D2 open = 2.67% / 2.32%`
+  - `hardpass_space_turnover`：
+    - discovery：`D2 close = 2.81%`，`D2 open = 2.38%`
+    - validation：`D2 close = 2.67% / 2.77%`，仍高于 `D2 open = 2.17% / 2.47%`
+  - `hardpass_core`：
+    - discovery：`D2 close = 2.23%`，`D2 open = 1.88%`
+    - validation：`D2 close = 2.41% / 2.03%`，仍高于 `D2 open = 1.79% / 1.83%`
+- 当前结论：
+  - `candidate` 主线里 `D2 open` 还没被彻底淘汰，但 `D2 close` 暂时已更值得优先观察
+  - `hardpass` 主线里，`D2 close` 目前是更清楚的默认方向
 
 ### 2026-04-13 | Long-Window P13 Validation
 
@@ -453,12 +918,22 @@ P13 当前已经从“哪个 D0 条件更强”推进到：
 - `official_d0_score`
 - `official_d0_flag`
 - `official_d0_tier`
+- `research_mainline_family`
+- `research_mainline_priority`
+- `research_pool_bucket`
 
 所以 GUI 的意义已经不只是“把今天的扫描结果列出来”，而是在逐步转向：
 
 - 用 research 验证过的正式 D0 逻辑排序
 - 在候选结果中优先展示更像主池的对象
+- 把结果临时分成“主线优先 + 副池补充 + 其他保留”
 - 让 Watchlist 的生成和复盘解释，更接近 research 的真实结论
+
+这里当前新增的一层含义是：
+
+- GUI 不再只是承接 `official_d0_logic_v2`
+- 也开始承接当前 research 的主线分层
+- 其中副池当前只允许做“主线基础上放宽一个条件”的补充层，不应被误读为新的正式交易主线
 
 ### 5.3 research 当前还没有直接反灌到 GUI 的部分
 
@@ -567,6 +1042,46 @@ P13 当前已经从“哪个 D0 条件更强”推进到：
 - `D2 close` 明显失效的样本长什么样
 
 这一步很关键，因为当前策略更像中胜率、靠结构拿正收益的模板，失效条件研究比盲目加新因子更重要。
+
+当前更建议把这一步细化成：
+
+- 先把研究范围切到：
+  - 最新窗口
+  - 当时真正排在前面的 shortlist
+  - 而不是整库所有过滤后样本
+- 当前默认做法是：
+  - 最近若干个 `setup_date`
+  - 每日按当前 research 排序取前 `N`
+  - 再固定看 `d1_breakout_buy + d2_close_exit`
+  - 之后再平行看 `d1_breakout_buy + d2_open_exit`
+- 再把样本分成 3 类：
+  - 成功池：`D1 breakout` 触发且可成交，`D2` 退出后收益为正
+  - 失败池：`D1 breakout` 触发且可成交，`D2` 退出后收益为负
+  - 未成交流：未触发 breakout 或无法执行，暂不并入失败池
+- 当前最值得先比较的字段包括：
+  - `official_d0_score`
+  - `BR20`
+  - `d0_limit_up_space_pct`
+  - `d0_turnover`
+  - `d0_turnover_f`
+  - `d0_range_vol`
+  - `research_mainline_family`
+  - `research_pool_bucket`
+- 当前最值得先输出的不是自动新规则，而是：
+  - 成功池 / 失败池的 summary 对照表
+  - family / pool 内部的成功率与亏损率对照
+  - 哪些“看起来也能过当前筛选”的结构，后续更容易失败
+
+这一步的正确落点应该是：
+
+- 先做解释性研究
+- 再做 time-split 验证
+- 最后才决定是否把极少数失效条件反灌到 GUI 提示或正式筛选逻辑
+
+这一步当前最重要的变化是：
+
+- 不再重复做“整库 D0-D1-D2 是否成立”
+- 改成做“最新时期里，当时本来排在前面的票，为什么后来失败”
 
 ### P16 优先级：delayed_payoff 支线验证
 
