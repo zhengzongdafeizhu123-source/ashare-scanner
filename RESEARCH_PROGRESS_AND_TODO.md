@@ -109,6 +109,16 @@
     - route fixed to `d1_breakout_buy + d2_close_exit`
   - latest practical finding:
     - intraday breakout followed by `D1` close back below breakout is a strong failure signal
+- `P16`
+  - a first confirm-then-buy script now exists: `p16_analyze_confirm_close_entry.py`
+  - first strict executable assumption is:
+    - confirm on `D1`
+    - enter on `D2 open`
+    - reject setups whose `D2 open` already overpays too far above breakout
+  - first output focus is:
+    - `D2 open -> D2 high` room
+    - `D2 open -> D2 close` result
+    - `D2` drawdown pain
 
 ### Most Recent P15 Finding
 
@@ -160,6 +170,96 @@
    - rank-band drift
    - weekday / gap / volatility context if needed
 4. Only after a failure condition survives repeated validation should it be fed back into GUI warning labels or filters.
+
+### Immediate Correction On P16 Direction
+
+- A very recent `P16` interpretation drifted in the wrong direction.
+- The problem was described too much as:
+  - "do not chase a too-high D2 open after confirmation"
+- That is not the user's core pain.
+- The user's core pain is closer to:
+  - after waiting for `D1` confirmation
+  - the setup is often already late / crowded / partially exhausted
+  - then `D2` immediately pulls back and the trade feels bad from the start
+
+### What P16 Should Focus On Next
+
+- Reframe `P16` away from a generic "high-open chase" problem.
+- Focus instead on:
+  - late confirmation risk
+  - exhaustion confirmation risk
+  - recent multi-day extension before the confirmation entry
+- High-value candidates to compare next:
+  - `D1` day gain too large
+  - `D0 + D1` two-day cumulative gain too large
+  - `D1 close` too far above breakout
+  - consecutive large green candles / limit-up continuation before confirm-style entry
+  - overextended short-term heat by the time of confirmation
+
+### GUI Prompt Rollback TODO
+
+- The just-added GUI `D2` prompt wording from this misread branch should be removed.
+- Specifically, current wording such as:
+  - `确认后别追过高开`
+  - `确认后更别追高开`
+- should not be treated as the settled GUI answer.
+- Reason:
+  - wording is not user-friendly enough
+  - more importantly, it does not match the actual problem the user described
+- Until the corrected `P16` research stabilizes:
+  - do not expand this prompt branch further
+  - treat removal / rollback of this wording as an explicit follow-up task
+
+### Newly Added Parallel Research Need
+
+- A new parallel line is now explicitly needed:
+  - `P16`
+  - `d1_confirm_close_buy`
+- Reason:
+  - the current research default is `d1_breakout_buy`
+  - but actual discretionary interpretation has drifted toward:
+    - wait for `D1` to look stable above breakout into the close
+    - only then consider entry
+- This is not the same strategy.
+- It should not stay mixed into the current breakout-trigger interpretation.
+
+### Working Definition For P16
+
+- `P16` should answer:
+  - if we require basic end-of-day breakout confirmation on `D1`
+  - is there still enough actionable space left afterward
+- Recommended minimum executable interpretation:
+  - `D1 high >= breakout_price`
+  - `D1 close >= breakout_price`
+  - `D1 close` should not be a weak line-hugging close
+  - `D1 close` should not be too close to the daily low
+
+### Recommended Entry Assumption
+
+- Do not directly reuse `D1 close` as the fill price.
+- For the first strict version, assume:
+  - `confirm on D1`
+  - `enter on D2 open`
+  - require `D2 open` not to overpay too far above breakout
+- Why:
+  - this is more executable and more conservative in A-share reality
+  - it avoids hindsight bias from treating `D1 close` as an idealized fill
+
+### Recommended First Evaluation Targets
+
+- `D2 open -> D2 high`
+- `D2 open -> D2 close`
+- `D2 intraday MFE`
+- `D2 intraday MAE`
+- if needed, extend to `D3`
+
+### Guardrail
+
+- `P16` is not a replacement for `P14`.
+- `P16` is not a reason to delete `d1_breakout_buy`.
+- It is a separate executable-reality comparison layer meant to answer:
+  - whether "confirm first, then buy" is still viable
+  - and whether it is viably different from the current breakout-trigger route
 
 ### Working Rule For New Agents
 

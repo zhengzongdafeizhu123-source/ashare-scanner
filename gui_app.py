@@ -1835,6 +1835,18 @@ def _series_or_default(df, column: str, default_value, pd_mod):
     return pd_mod.Series(default_value, index=df.index)
 
 
+def _default_result_visibility_mask(df, pd_mod):
+    tier = _series_or_default(df, "official_d0_tier", "", pd_mod).astype(str).str.strip()
+    flag = _series_or_default(df, "official_d0_flag", "", pd_mod).astype(str).str.strip()
+    label = _series_or_default(df, "分层标签", "", pd_mod).astype(str).str.strip()
+
+    has_tier = tier.isin(["A", "B", "C"])
+    passed_official_d0 = flag.eq("是")
+    keep_label = label.isin(["候选", "观察"])
+    hidden_drop = label.eq("放弃") & (~has_tier) & (~passed_official_d0)
+    return has_tier | passed_official_d0 | keep_label | (~hidden_drop)
+
+
 def _sort_official_result_dataframe(self, df):
     pd_mod, _ = _ensure_runtime_modules()
     if df.empty:
@@ -1892,6 +1904,7 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
     if df.empty:
         return df
     keyword = self.result_ui_vars["keyword"].get().strip().lower()
+    label_filter = self.result_ui_vars["label_filter"].get()
     if keyword:
         masks = []
         for col in ["股票代码", "股票名称", "research_pool_bucket", "research_mainline_family", "research_mainline_note", "research_recent_note", "research_sort_note", "d1_attention_tag", "d1_attention_note", "d2_attention_tag", "d2_attention_note", "research_trade_attention", "硬过滤未通过原因", "official_d0_hit_rules", "official_d0_miss_rules"]:
@@ -1902,6 +1915,8 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
             for extra in masks[1:]:
                 mask = mask | extra
             df = df[mask].copy()
+    elif label_filter != "放弃":
+        df = df[_default_result_visibility_mask(df, pd_mod)].copy()
     pool_filter_var = self.result_ui_vars.get("research_pool_filter")
     pool_filter = pool_filter_var.get() if pool_filter_var is not None else "全部"
     if pool_filter != "全部" and "research_pool_bucket" in df.columns:
@@ -1913,7 +1928,6 @@ def _patched_get_filtered_result_frame(self, tab_key: str):
             df = df[df["research_pool_bucket"] == "副池"].copy()
         elif pool_filter == "仅其他":
             df = df[df["research_pool_bucket"] == "其他"].copy()
-    label_filter = self.result_ui_vars["label_filter"].get()
     if label_filter != "全部" and "分层标签" in df.columns:
         df = df[df["分层标签"] == label_filter].copy()
     hard_filter = self.result_ui_vars["hard_filter"].get()

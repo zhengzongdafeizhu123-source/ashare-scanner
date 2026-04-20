@@ -245,6 +245,50 @@ python p15_analyze_success_failure_pools.py --dataset "C:\Users\wseba\OneDrive\A
   - `p15_recent_failure_slice_summary_*.csv`
   - `p15_success_failure_report_*.md`
 
+## P16 Confirm-Then-Buy Research
+
+首版 recent shortlist：
+
+```powershell
+python p16_analyze_confirm_close_entry.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json --scope recent_top_ranked_subset --recent-setup-days 40 --top-n-per-day 20 --output-dir tmp_p16_outputs
+```
+
+全样本过滤后口径：
+
+```powershell
+python p16_analyze_confirm_close_entry.py --dataset "C:\Users\wseba\OneDrive\AshareScanner\output\main\research\p9_research_dataset_20260403_160358.parquet" --research-config research_config.p12.hpow.json --scope full_filtered_universe --output-dir tmp_p16_outputs
+```
+
+可调参数：
+
+- `--min-close-gap-pct`
+  `D1 close` 高于 breakout 的最小缓冲
+- `--min-close-position-pct`
+  `D1 close` 在当日振幅里的最低位置要求
+- `--min-d2-space-pct`
+  `D2 open` 入场后，当天至少要给多少上行空间
+- `--max-d2-drawdown-pct`
+  `D2 open` 入场后，当天最多容忍多深回撤
+- `--max-d2-open-gap-pct`
+  `D2 open` 相对 breakout 最多允许追高多少
+
+当前首版口径：
+
+- `D1 high >= breakout_price`
+- `D1 close >= breakout_price`
+- `D1 close` 不能只是弱压线
+- `D1 close` 不能太靠近日内低位
+- `D1` 只负责确认
+- 真实入场按 `D2 open`
+- 默认会过滤 `D2 open` 相对 breakout 追高过多的样本
+
+首版最值得看的输出：
+
+- `p16_overall_summary_*.csv`
+- `p16_family_summary_*.csv`
+- `p16_confirm_detail_*.csv`
+- `p16_confirm_report_*.md`
+
 ## 最常用整套命令
 
 主力 dataset + `hard_pass_or_watch`：
